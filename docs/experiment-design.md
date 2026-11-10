@@ -21,7 +21,7 @@
 | 네트워크 | front server와 signer 사이 loss | 0%, 1% |
 | 시스템 | front server의 CPU core 수 | 1, 4 |
 | 시스템 | 동시 handshake 수 | 1, 10, 100 |
-| 시스템 | CPU architecture | x86-64, arm64 |
+| 시스템 | CPU architecture | 실험 host의 architecture 하나로 시작한다. 다른 architecture는 장비가 확보되면 추가한다. |
 
 ### 종속 변인
 
@@ -46,6 +46,8 @@ T_hs와 D_sign은 중앙값, p95, p99로 보고한다.
 
 ## 2. 테스트베드
 
+실험은 Linux host 1대에서 진행한다. host는 CPU 16 core, RAM 30 GB, Ubuntu 24.04이며 Docker가 설치돼 있다. 모든 container가 이 host에서 실행된다.
+
 client와 front server 구간은 QUIC Interop Runner와 그 기반인 quic-network-simulator를 쓴다[17]. 이 도구는 구현체를 Docker image로 실행하고 그 사이의 링크 조건을 바꾼다. 2026년 11월 기준 Interop Runner에는 QUIC 구현체 18개가 등록돼 있으며, 그중 chrome은 client 전용이고 nginx와 haproxy는 서버 전용이다. 같은 도구로 8개 구현체의 handshake를 비교한 선행 측정이 있다[16].
 
 front server와 signer 구간은 Interop Runner가 다루지 않으므로 별도 Docker network를 만들고 `tc netem`으로 RTT·loss·jitter를 준다. signer마다 다른 RTT_s를 주기 위해 signer container마다 qdisc를 따로 둔다.
@@ -66,7 +68,7 @@ flowchart LR
 
 ### Phase 0. 조사
 
-- 할 일: 후보 구현체마다 서명 hook의 위치, 비동기 지원 여부, 서명 대기 중 ServerHello·ACK 송신 여부, Ed25519 인증서 지원 여부를 source와 실행으로 확인해 [related-work.md](related-work.md) 5절의 조사표를 채운다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다.
+- 할 일: 후보 구현체마다 서명 hook의 위치, 비동기 지원 여부, 서명 대기 중 ServerHello·ACK 송신 여부, Ed25519 인증서 지원 여부를 source와 실행으로 확인해 [related-work.md](related-work.md) 5절의 조사표를 채운다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다. 실험 host에서 `sch_netem` kernel module, Docker 실행 권한, Interop Runner가 요구하는 Wireshark 4.5 이상을 확인한다.
 - 종료 조건: 서버 구현체 4개와 client 구현체 2개를 정하고, 각 서버 구현체에서 서명 hook을 외부 함수로 바꾼 handshake가 한 번 성공한다.
 
 ### Phase 1. 지연 주입

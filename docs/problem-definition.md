@@ -138,4 +138,3 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | 산출물의 형태와 마감 | 정해지지 않았다. | 구현체 수와 실험 격자의 크기를 정한다. |
 | 초기 구현체 | Phase 0 조사 뒤 비동기형 hook 2개, 동기형 hook 2개를 고른다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | 구현이 단순한 FROST와 Shoup threshold RSA를 먼저 하고 threshold ECDSA를 뒤에 둔다. | 공개 WebPKI에 적용 가능한 결과를 언제 얻는지가 달라진다. |
-| 실험 장비 | Docker와 `tc netem`을 쓰는 단일 host에서 시작한다. | CPU 부하 실험의 신뢰도와 실제 WAN 검증 여부가 달라진다. |
