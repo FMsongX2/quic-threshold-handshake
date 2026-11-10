@@ -1,0 +1,8 @@
+# 조사용으로 내려받은 QUIC 구현체 source
+third_party/
+# 사용자 설치 toolchain
+.toolchain/
+# 측정 산출물
+logs/
+*.pcap
+*.qlog
