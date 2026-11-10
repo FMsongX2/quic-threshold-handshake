@@ -86,7 +86,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 
 ### RQ1. 구현체의 서명 hook과 대기 중 동작
 
-TLS 라이브러리의 서명 hook은 비동기형과 동기형으로 나뉜다. BoringSSL, picotls, s2n-tls는 서명이 끝나지 않았음을 알리고 handshake를 나중에 재개하는 hook을 제공한다. Go `crypto/tls`와 rustls의 hook은 서명이 끝날 때까지 호출이 반환되지 않는다(조사표는 [related-work.md](related-work.md) 5절).
+서명 hook은 비동기형과 동기형으로 나뉜다. 비동기형은 서명이 끝나지 않았음을 알리고 handshake를 나중에 재개하며, 동기형은 서명이 끝날 때까지 호출이 반환되지 않는다. source 조사에서 quicly, mvfst, s2n-quic, Cloudflare quiche, BoringSSL을 쓰는 ngtcp2는 QUIC 계층까지 비동기 서명을 지원했고, quic-go, quinn, aioquic, nginx를 포함한 나머지 구현체는 동기 서명만 가능했다(조사표는 [related-work.md](related-work.md) 5절). 동기형 구현체는 실행 모델이 서로 다르다. quic-go는 연결마다 별도 goroutine에서 handshake를 처리하고, aioquic은 asyncio event loop 하나에서 모든 연결을 처리한다.
 
 - 가설 H1: 동기형 hook을 쓰는 구현체에서는 서명 호출이 그 구현체의 실행 단위(thread, event loop, task)를 D_sign 동안 점유한다. 실행 단위 하나가 여러 연결을 처리하는 구현체에서는 동시에 진행되는 다른 handshake의 T_hs도 함께 늘어난다.
 - 예측: 동시 handshake 수를 늘리면 비동기형 hook 구현체의 T_hs 중앙값은 유지되고, 실행 단위를 공유하는 동기형 hook 구현체의 T_hs 중앙값은 동시 handshake 수에 비례해 증가한다.
@@ -136,5 +136,6 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | --- | --- | --- |
 | "하위 서버 간 핸드셰이크 지연시간"의 해석 | signer들이 서명에 협력하느라 생기는 지연이 client가 관측하는 QUIC handshake 시간에 주는 영향으로 해석했다. coordinator와 signer 사이 연결을 맺는 비용은 "signer 간 transport" 변인으로 포함했다. | signer끼리 맺는 handshake 자체가 주 측정 대상이라면 T_hs의 정의와 RQ3이 바뀐다. |
 | 산출물의 형태와 마감 | 정해지지 않았다. | 구현체 수와 실험 격자의 크기를 정한다. |
-| 초기 구현체 | Phase 0 조사 뒤 비동기형 hook 2개, 동기형 hook 2개를 고른다. | RQ1과 RQ3의 비교 폭을 정한다. |
+| 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic으로 시작한다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | 구현이 단순한 FROST와 Shoup threshold RSA를 먼저 하고 threshold ECDSA를 뒤에 둔다. | 공개 WebPKI에 적용 가능한 결과를 언제 얻는지가 달라진다. |
+| Docker 실행 권한 | 실험 계정에 권한이 없다. 권한을 얻기 전에는 host에서 직접 build한 구현체와 user-space UDP relay로 진행한다. | Interop Runner와 `tc netem`을 쓰는 측정을 시작하는 시점을 정한다. |

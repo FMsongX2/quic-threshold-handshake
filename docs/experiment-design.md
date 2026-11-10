@@ -8,8 +8,8 @@
 
 | 구분 | 변인 | 초기 수준 |
 | --- | --- | --- |
-| 구현체 | 서버 QUIC 구현체 | Phase 0에서 비동기형 서명 hook 2개, 동기형 서명 hook 2개를 고른다. |
-| 구현체 | client QUIC 구현체 | 서버와 같은 구현체 1개와 다른 구현체 1개를 쓴다. |
+| 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic으로 시작한다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. |
+| 구현체 | client QUIC 구현체 | quic-go를 기본 client로 쓴다. 두 번째 client는 Ed25519 검증 지원을 실행으로 확인한 뒤 정한다. |
 | 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256 |
 | 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. |
 | 서명 | precomputation | 사용, 미사용 |
@@ -21,7 +21,7 @@
 | 네트워크 | front server와 signer 사이 loss | 0%, 1% |
 | 시스템 | front server의 CPU core 수 | 1, 4 |
 | 시스템 | 동시 handshake 수 | 1, 10, 100 |
-| 시스템 | CPU architecture | 실험 host의 architecture 하나로 시작한다. 다른 architecture는 장비가 확보되면 추가한다. |
+| 시스템 | CPU architecture | x86-64. 다른 architecture는 장비가 확보되면 추가한다. |
 
 ### 종속 변인
 
@@ -46,7 +46,9 @@ T_hs와 D_sign은 중앙값, p95, p99로 보고한다.
 
 ## 2. 테스트베드
 
-실험은 Linux host 1대에서 진행한다. host는 CPU 16 core, RAM 30 GB, Ubuntu 24.04이며 Docker가 설치돼 있다. 모든 container가 이 host에서 실행된다.
+실험은 Linux host 1대에서 진행한다. host는 x86-64 CPU 32 core, RAM 121 GB, Ubuntu 26.04이며 다른 사용자와 함께 쓴다. 모든 프로세스와 container가 이 host에서 실행된다.
+
+Docker 실행 권한은 아래 Interop Runner와 `tc netem` 구성의 선행 조건이다. 현재 실험 계정에는 이 권한이 없다. 권한을 얻기 전에는 구현체를 host에서 직접 build해 loopback에서 실행하고, client와 front server 사이에 지연과 loss를 넣는 user-space UDP relay를 둔다. 이 구성으로 Phase 0의 실행 확인과 Phase 1 중 RTT_c가 20 ms 이상인 조건을 진행한다. relay의 지연 정밀도는 netem보다 낮으므로 RTT_c 1 ms 조건과 최종 측정은 Docker 권한을 얻은 뒤 Interop Runner 구성에서 수행한다.
 
 client와 front server 구간은 QUIC Interop Runner와 그 기반인 quic-network-simulator를 쓴다[17]. 이 도구는 구현체를 Docker image로 실행하고 그 사이의 링크 조건을 바꾼다. 2026년 11월 기준 Interop Runner에는 QUIC 구현체 18개가 등록돼 있으며, 그중 chrome은 client 전용이고 nginx와 haproxy는 서버 전용이다. 같은 도구로 8개 구현체의 handshake를 비교한 선행 측정이 있다[16].
 
@@ -68,7 +70,8 @@ flowchart LR
 
 ### Phase 0. 조사
 
-- 할 일: 후보 구현체마다 서명 hook의 위치, 비동기 지원 여부, 서명 대기 중 ServerHello·ACK 송신 여부, Ed25519 인증서 지원 여부를 source와 실행으로 확인해 [related-work.md](related-work.md) 5절의 조사표를 채운다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다. 실험 host에서 `sch_netem` kernel module, Docker 실행 권한, Interop Runner가 요구하는 Wireshark 4.5 이상을 확인한다.
+- 완료한 일: 15개 QUIC 구현체의 서명 대기 처리 방식을 source로 조사해 [related-work.md](related-work.md) 5.2절에 정리하고 서버 구현체 4개를 정했다.
+- 남은 일: 서버 구현체 4개에서 서명 hook을 외부 함수로 바꾼다. 서명을 기다리는 동안 각 구현체가 ServerHello와 ACK를 보내는지, client가 Ed25519 인증서를 받아들이는지 qlog로 확인한다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다. 실험 host에서 Docker 실행 권한, `sch_netem` kernel module, Interop Runner가 요구하는 Wireshark 4.5 이상을 확보한다.
 - 종료 조건: 서버 구현체 4개와 client 구현체 2개를 정하고, 각 서버 구현체에서 서명 hook을 외부 함수로 바꾼 handshake가 한 번 성공한다.
 
 ### Phase 1. 지연 주입
@@ -131,6 +134,7 @@ $Q_p$는 T_hs의 $p$ 분위수이며 $p$는 0.5와 0.99 두 값을 쓴다. $d(x)
 | Interop Runner용 Docker image의 기본 설정이 구현체마다 달라 구현체 차이와 설정 차이가 섞인다. | 통제 변인을 image마다 확인해 맞추고, 맞출 수 없는 설정은 결과 표에 구현체별로 적는다. |
 | emulation의 지연·loss 모형이 실제 WAN과 다르다. | 결과의 적용 범위를 emulation 조건으로 한정하고, 장비가 확보되면 대표 구성 하나를 실제 WAN에서 다시 측정한다. |
 | 모든 container가 한 host에 있어 CPU 경쟁이 측정값에 들어간다. | container마다 CPU core를 고정하고, 동시 handshake 실험에서는 부하 생성기를 다른 core에 둔다. |
+| 다른 사용자의 작업이 host의 CPU를 쓰면 측정값이 흔들린다. | 측정 구간마다 host의 load average를 함께 기록하고, 부하가 높았던 구간은 다시 측정한다. |
 | 구현체 version이 바뀌면 서명 대기 중 동작이 달라진다. | 측정에 쓴 commit과 image digest를 결과와 함께 기록한다. |
 | p99는 표본 수에 민감하다. | 조건별 반복 수와 bootstrap 신뢰구간을 함께 보고한다. |
 | Ed25519 인증서 결과는 공개 WebPKI에 적용되지 않는다[19]. | FROST 결과는 사설 PKI 조건으로 표시하고, 공개 WebPKI에 대한 결론은 RSA와 ECDSA 결과로만 내린다. |

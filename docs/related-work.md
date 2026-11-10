@@ -22,9 +22,11 @@ Nawrocki 등은 QUIC을 지원하는 서비스 27만 2천 개를 측정해 서�
 
 Looma는 post-quantum 서명의 비용을 줄이기 위해 online/offline signature를 TLS 1.3에 넣어, 비싼 연산을 handshake 경로 밖에서 미리 수행한다. picotls를 확장해 구현했고, Dilithium-2를 쓰는 handshake보다 지연시간을 최대 44% 줄였다고 보고했다[18]. Looma의 대상은 datacenter 안의 TLS 연결이다. precomputation으로 handshake 경로의 서명 비용을 줄인다는 발상은 threshold signature의 nonce commitment·presignature precomputation과 같은 방향이다.
 
-## 5. TLS 라이브러리의 서명 hook 조사표
+## 5. 서명 hook 조사표
 
-QUIC 구현체는 TLS 라이브러리를 통해 CertificateVerify 서명을 만든다. 아래 표의 "hook"과 "비동기 지원"은 각 라이브러리의 header·source·공식 문서에서 확인했다. "QUIC 구현체" 열은 각 구현체의 일반적인 구성이며, QUIC 계층이 서명 미완료 상태를 받아 handshake를 재개하는지와 대기 중 어떤 packet을 보내는지는 Phase 0에서 확인한다.
+### 5.1 TLS 라이브러리
+
+QUIC 구현체는 TLS 라이브러리를 통해 CertificateVerify 서명을 만든다. 아래 표의 "hook"과 "비동기 지원"은 각 라이브러리의 header·source·공식 문서에서 확인했다.
 
 | TLS 라이브러리 | 서명 hook | 비동기 지원 | QUIC 구현체 | 근거 |
 | --- | --- | --- | --- | --- |
@@ -34,7 +36,38 @@ QUIC 구현체는 TLS 라이브러리를 통해 CertificateVerify 서명을 만�
 | Go `crypto/tls` | `tls.Certificate.PrivateKey`에 넣는 `crypto.Signer` | `Sign` 호출이 서명을 반환할 때까지 끝나지 않는 동기 interface다. | quic-go, go-x-net | [25] |
 | rustls 0.23 | `sign::SigningKey`와 `sign::Signer::sign` | `sign`이 서명을 반환하는 동기 trait이다. | quinn | [26] |
 
-mvfst(fizz), msquic, ngtcp2, nginx, aioquic, neqo, xquic의 서명 hook은 아직 확인하지 않았다.
+### 5.2 QUIC 구현체
+
+TLS 라이브러리가 비동기 hook을 제공해도 QUIC 구현체가 서명 미완료 상태를 받아 handshake를 재개해야 비동기 서명이 가능하다. 아래 표는 2026년 11월 10일에 각 저장소 기본 branch의 최신 commit을 받아 source에서 확인한 결과다. 구현체 이름 옆 괄호는 조사한 commit이다.
+
+| QUIC 구현체 | TLS | QUIC 계층의 서명 대기 처리 | 근거 |
+| --- | --- | --- | --- |
+| quicly (4939a16) | picotls | 비동기를 지원한다. `ptls_handle_message`가 `PTLS_ERROR_ASYNC_OPERATION`을 반환하면 `async_handshake` callback을 부르고, application이 `quicly_resume_handshake`로 재개한다. | `lib/quicly.c` 1240행, `include/quicly.h` 165행 |
+| mvfst (943f094), fizz (fd15962) | fizz | 비동기를 지원한다. `AsyncSelfCert::signFuture`가 `SemiFuture`를 반환하고 `ServerHandshake::startActions`가 이를 executor에서 이어 처리한다. | fizz `fizz/server/AsyncSelfCert.h` 26행, mvfst `quic/server/handshake/ServerHandshake.cpp` 329행 |
+| s2n-quic (f56d8cf) | s2n-tls | 비동기를 지원한다. `with_private_key_handler`로 `PrivateKeyCallback`을 등록하며, 서명이 끝나기 전에는 `poll_negotiate`가 pending을 반환한다. private key offload test가 들어 있다. | `quic/s2n-quic-tls/src/server.rs` 111행, `session.rs` 188행, `tests.rs` 292행 |
+| Cloudflare quiche (fa0e480) | BoringSSL | 비동기를 지원한다. `SSL_ERROR_WANT_PRIVATE_KEY_OPERATION`을 handshake 미완료로 처리하고, 이후 `send` 호출이나 CRYPTO frame 수신 때 handshake를 다시 시도한다. private key method는 `Config::with_boring_ssl_ctx_builder`에 넘기는 context에 설정한다. | `quiche/src/tls/mod.rs` 650행, `quiche/src/lib.rs` 655행·4018행·8774행 |
+| ngtcp2 (e82176c), BoringSSL backend | BoringSSL | 비동기를 지원한다. `SSL_ERROR_WANT_PRIVATE_KEY_OPERATION`에서 오류 없이 반환하고 재개는 application에 맡긴다. | `crypto/boringssl/boringssl.c` 481행 |
+| ngtcp2 (e82176c), OpenSSL·quictls backend | OpenSSL | client hello callback과 인증서 lookup의 중단만 처리하고 서명 대기는 처리하지 않는다. | `crypto/ossl/ossl.c` 984행, `crypto/quictls/quictls.c` 829행 |
+| lsquic (cd23e52) | BoringSSL | 지원하지 않는다. `SSL_do_handshake`의 결과 중 `SSL_ERROR_WANT_READ`와 `SSL_ERROR_WANT_WRITE`만 재시도하고 나머지는 실패로 처리한다. | `src/liblsquic/lsquic_enc_sess_ietf.c` 1964행 |
+| xquic (507c66b) | BoringSSL, BabaSSL | 지원하지 않는다. lsquic과 같이 `SSL_ERROR_WANT_READ`와 `SSL_ERROR_WANT_WRITE`만 재시도한다. | `src/tls/xqc_tls.c` 705행 |
+| picoquic (77fa502) | picotls | 지원하지 않는다. `ptls_handle_message`의 결과 중 0과 `PTLS_ERROR_IN_PROGRESS`만 정상으로 처리한다. | `picoquic/tls_api.c` 2774행 |
+| quic-go (d8963d1) | Go `crypto/tls` | 동기다. `HandleMessage`가 `QUICConn.HandleData`를 호출하고, 이 호출은 handshake goroutine이 다음 입력을 기다리거나 끝날 때까지 반환하지 않는다. | `internal/handshake/crypto_setup.go` 227행, Go `crypto/tls/quic.go`의 `HandleData` |
+| go-x-net (3de643d) | Go `crypto/tls` | 동기다. quic-go와 같은 `QUICConn.HandleData`를 쓴다. | `quic/tls.go` 121행 |
+| quinn (ca3566c) | rustls | 동기다. rustls의 `Signer::sign`이 서명을 반환해야 handshake가 진행된다. | [26] |
+| aioquic (4647657) | 자체 TLS 구현 | 동기다. server의 handshake 처리 함수가 `certificate_private_key.sign()`을 직접 호출한다. | `src/aioquic/tls.py` 2265행 |
+| nginx (2a3a19c) | OpenSSL | 동기다. `SSL_do_handshake`의 결과 중 `SSL_ERROR_WANT_READ`만 재시도한다. | `src/event/quic/ngx_event_quic_ssl.c` 727행 |
+| haproxy (8a7a446) | OpenSSL 계열 | 동기다. `SSL_ERROR_WANT_READ`와 `SSL_ERROR_WANT_WRITE`만 재시도한다. | `src/quic_ssl.c` 941행 |
+| msquic (6a3729a), Linux | OpenSSL | 동기다. `SSL_ERROR_WANT_READ`와 `SSL_ERROR_WANT_WRITE`만 재시도한다. | `src/platform/tls_openssl.c` 2797행 |
+
+neqo와 kwik은 아직 확인하지 않았다.
+
+조사에서 확인한 사실은 세 가지다.
+
+- picotls와 BoringSSL은 비동기 hook을 제공하지만 picoquic, lsquic, xquic은 서명 미완료 상태를 처리하지 않는다. 비동기 서명이 가능한지는 TLS 라이브러리가 아니라 QUIC 구현체 단위로 판단해야 한다.
+- "지원하지 않는다" 또는 "동기"로 분류한 구현체에서도 서명 함수를 원격 호출로 바꿀 수 있다. 이때 서명 함수가 반환할 때까지 그 handshake를 처리하던 실행 단위가 멈춘다.
+- BoringSSL이 기본으로 받아들이는 서명 검증 알고리즘 목록에는 Ed25519가 없다[27]. BoringSSL을 쓰는 client는 검증 알고리즘을 따로 설정하지 않으면 Ed25519 인증서의 서명을 거부하므로, FROST 실험의 client는 Ed25519 검증을 기본으로 지원하는 구현체에서 고른다.
+
+서명을 기다리는 동안 각 구현체가 ServerHello나 ACK를 먼저 보내는지는 source만으로 확정하지 못했다. 이 항목은 실행해서 qlog로 확인한다.
 
 ## 6. 이 연구가 채우려는 공백
 
@@ -68,3 +101,4 @@ mvfst(fizz), msquic, ngtcp2, nginx, aioquic, neqo, xquic의 서명 hook은 아�
 24. s2n-tls Usage Guide, "Offloading Private Key Operations." https://aws.github.io/s2n-tls/usage-guide/ch13-private-key-ops.html
 25. Go `crypto/tls`, `common.go`의 `Certificate.PrivateKey`. https://github.com/golang/go/blob/master/src/crypto/tls/common.go
 26. rustls 0.23.31, `rustls/src/crypto/signer.rs`. https://github.com/rustls/rustls/blob/v/0.23.31/rustls/src/crypto/signer.rs
+27. BoringSSL, `ssl/extensions.cc`의 `kVerifySignatureAlgorithms`. https://github.com/google/boringssl/blob/main/ssl/extensions.cc

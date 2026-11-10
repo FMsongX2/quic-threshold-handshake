@@ -25,7 +25,7 @@ QUIC handshake에서 서버는 TLS 1.3 CertificateVerify 메시지에 인증서 
 | --- | --- |
 | [docs/problem-definition.md](docs/problem-definition.md) | 배경, 시스템 모델, 위협 모델, signature scheme 제약, 연구 질문과 가설, 범위, 미결정 사항 |
 | [docs/experiment-design.md](docs/experiment-design.md) | 변인, 테스트베드, 측정 지표, 단계별 실험, 지연 모델과 최적화 문제, 타당성 위협 |
-| [docs/related-work.md](docs/related-work.md) | 선행 연구, TLS 라이브러리별 서명 hook 조사표, 참고문헌 |
+| [docs/related-work.md](docs/related-work.md) | 선행 연구, TLS 라이브러리와 QUIC 구현체의 서명 hook 조사표, 참고문헌 |
 
 ## 진행 상태
 
