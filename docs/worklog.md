@@ -159,6 +159,16 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 - 서명·handshake별 기록(`sign.jsonl`, `client.jsonl`, `server-trace.jsonl`)을 gzip으로 압축해 저장소에 넣기로 했다. 이번 측정까지 더하면 `results/`가 122 MB였고 압축 뒤 19 MB다. 이전 측정의 기록도 같은 방식으로 바꿨다. 집계 스크립트는 두 형식을 모두 읽는다.
 - 압축하기 전에 push가 한 번 거부됐다. GitHub의 push protection이 `client.jsonl`에 기록된 QUIC connection ID 하나(client가 만든 무작위 16진수 문자열)를 credential 형식으로 판정했다. 그 값이 connection ID임을 확인했고, 해당 commit은 push하지 않고 압축한 내용으로 다시 만들었다.
 
+### signer 연결 pool 구현
+
+동시 handshake 100개와 loss 2% 조건의 지연이 signer마다 하나인 연결을 함께 쓰기 때문이라는 해석을 확인하려고, signer마다 연결을 여러 개 두는 transport를 구현했다.
+
+- 연결을 유지하는 transport에 signer당 연결 수 K를 option으로 넣었다. 요청은 연결에 차례대로 돌아가며 배정한다. coordinator가 시작할 때 모든 연결을 미리 맺는다.
+- nudge의 ping은 그 요청을 실은 연결로 보낸다. 다른 연결로 보내면 손실된 packet의 재전송을 앞당기지 못하기 때문이다.
+- 지연 hedge는 넓힐 때의 요청을 다음 차례의 연결로 보낸다. 연결이 여러 개이면 3.3절에서 본 재전송 효과가 없을 것으로 예상하며, 이 조합은 측정하지 않았다.
+- 예상: 연결이 많을수록 손실 하나가 늦추는 요청의 수는 줄지만, 연결마다 지나가는 packet이 적어져 재전송이 약 200 ms의 timer를 기다리는 일이 다시 늘어난다. 따라서 연결을 늘릴 때는 nudge가 함께 필요하다.
+- 실행 스크립트의 transport 표기는 `persistent16`처럼 뒤에 연결 수를 붙인다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
