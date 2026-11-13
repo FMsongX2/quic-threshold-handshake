@@ -111,6 +111,18 @@ Phase 2에서 FROST는 선택한 signer 전부의 응답을 기다려야 해서 
 - RTT 추정을 최솟값으로 바꾼 뒤 fastest 정책은 loss 2%에서도 가까운 signer를 유지했다.
 - precomputation hedge에서 약 10.7회(= 64 / 6)마다 서명이 5~6 ms 늦어졌다. coordinator가 commitment를 64개씩 보충하는 주기와 같다. 보충 단위를 줄이거나 보충을 서명 요청과 겹치지 않게 하는 것은 하지 않았다.
 
+## 2026-11-14
+
+### 적응형 hedge 구현
+
+hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다([results-phase3-hedging.md](results-phase3-hedging.md) 5절). 필요할 때만 폭을 넓히는 방식을 구현했다.
+
+- 지연 hedge: 가장 가까운 t개 signer로 세션 하나(primary)만 먼저 진행한다. 정해 둔 시간 안에 primary가 끝나지 않으면 나머지 세션을 모두 시작한다. primary의 signer가 오류를 내면 시간을 기다리지 않고 바로 넓힌다.
+- 기다리는 시간은 "계수 × 왕복 수 × primary에서 가장 먼 signer의 RTT 추정 + 2 ms"다. 2 ms는 signer 계산 시간의 여유다. 계수는 실행 option이다.
+- hedge 예산: 넓힐 수 있는 서명의 비율에 상한을 둔다. 서명 하나마다 예산만큼 token이 쌓이고 넓힐 때 token 하나를 쓴다. token은 10개까지 쌓인다. 부하로 응답이 늦어져 timer가 연달아 만료될 때 hedge가 부하를 더 키우는 것을 막기 위한 장치다. signer 오류로 넓힐 때는 예산을 쓰지 않는다.
+- 넓힐 때 필요한 commitment는 그때 pool에서 꺼내고 모자라면 signer에게서 받는다. 넓히지 않은 서명은 commitment를 signer마다 하나만 쓴다.
+- 실행 스크립트의 정책 표기는 `hedge[N][dF][bB]`다. N은 폭, F는 지연 계수, B는 예산이다. 예를 들어 `hedge4d1.5b0.2`는 폭 4, 계수 1.5, 예산 20%다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
