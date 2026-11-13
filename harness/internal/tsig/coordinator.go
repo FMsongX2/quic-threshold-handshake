@@ -1,0 +1,419 @@
+package tsig
+
+import (
+	"context"
+	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"sort"
+	"time"
+
+	"github.com/bytemare/frost"
+	trsa "github.com/cloudflare/circl/tss/rsa"
+)
+
+// Signer selection policies.
+const (
+	// PolicyFixed always uses the first t signers in configuration order.
+	PolicyFixed = "fixed"
+	// PolicyFastest uses the t signers with the lowest estimated RTT.
+	PolicyFastest = "fastest"
+	// PolicyFirst asks all n signers and uses the first t answers. It needs
+	// shares that do not depend on the signer set, so it is RSA only.
+	PolicyFirst = "first"
+)
+
+const (
+	signTimeout     = 15 * time.Second
+	commitPoolSize  = 256
+	commitBatchSize = 64
+)
+
+// Options configures a Coordinator.
+type Options struct {
+	Policy    string
+	Transport string
+	// Precompute collects FROST nonce commitments ahead of time, which
+	// leaves one round trip per signature.
+	Precompute bool
+	// OnTrace, if set, receives the trace of every signature made through
+	// the crypto.Signer interface.
+	OnTrace func(*Trace)
+}
+
+// Call is one request to one signer.
+type Call struct {
+	Signer int `json:"signer"`
+	// RTTNs runs from just before the request is sent to just after the
+	// response is read.
+	RTTNs int64 `json:"rtt_ns"`
+	// ComputeNs is the handling time the signer reported.
+	ComputeNs int64 `json:"compute_ns"`
+}
+
+// Round is one set of parallel requests the coordinator waits for.
+type Round struct {
+	Name   string `json:"name"`
+	WallNs int64  `json:"wall_ns"`
+	Calls  []Call `json:"calls"`
+}
+
+// Trace records where the time of one signature went.
+type Trace struct {
+	Scheme     string  `json:"scheme"`
+	Threshold  int     `json:"threshold"`
+	Signers    int     `json:"signers"`
+	Policy     string  `json:"policy"`
+	Transport  string  `json:"transport"`
+	Precompute bool    `json:"precompute"`
+	StartNs    int64   `json:"start_unix_ns"`
+	TotalNs    int64   `json:"total_ns"`
+	Rounds     []Round `json:"rounds"`
+	// PoolMiss reports that a precomputed commitment was not available and
+	// had to be fetched during the signature.
+	PoolMiss bool `json:"pool_miss,omitempty"`
+}
+
+// Coordinator turns key shares on remote signers into signatures. It
+// implements crypto.Signer so a TLS stack can use it as a certificate key.
+type Coordinator struct {
+	pub       *Public
+	public    crypto.PublicKey
+	opts      Options
+	peers     []*peer
+	frostConf *frost.Configuration
+	// pools holds precomputed commitments per signer, indexed like peers.
+	pools []chan *frost.Commitment
+	// refills wakes the goroutine that tops up the pool of the same index.
+	refills []chan struct{}
+}
+
+// NewCoordinator connects to the signers at addrs, which are listed in signer
+// ID order, and measures an initial RTT for each.
+func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, error) {
+	if len(addrs) != pub.Signers {
+		return nil, fmt.Errorf("tsig: %d signer addresses for %d signers", len(addrs), pub.Signers)
+	}
+	if opts.Policy == "" {
+		opts.Policy = PolicyFixed
+	}
+	if opts.Transport == "" {
+		opts.Transport = TransportPersistent
+	}
+	if opts.Policy == PolicyFirst && pub.Scheme != SchemeRSA {
+		return nil, errors.New("tsig: policy first needs the rsa scheme")
+	}
+	if opts.Precompute && pub.Scheme != SchemeFrost {
+		return nil, errors.New("tsig: precompute needs the frost scheme")
+	}
+	public, err := pub.publicKey()
+	if err != nil {
+		return nil, err
+	}
+	c := &Coordinator{pub: pub, public: public, opts: opts}
+	if pub.Scheme == SchemeFrost {
+		if c.frostConf, err = pub.frostConfig(); err != nil {
+			return nil, err
+		}
+	}
+	for i, addr := range addrs {
+		c.peers = append(c.peers, &peer{id: i + 1, addr: addr, transport: opts.Transport})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
+	for _, p := range c.peers {
+		for range 3 {
+			if _, _, err := p.call(ctx, OpPing, nil); err != nil {
+				return nil, fmt.Errorf("tsig: signer %d at %s: %w", p.id, p.addr, err)
+			}
+		}
+	}
+	if opts.Precompute {
+		for _, p := range c.peers {
+			pool := make(chan *frost.Commitment, commitPoolSize)
+			wake := make(chan struct{}, 1)
+			c.pools = append(c.pools, pool)
+			c.refills = append(c.refills, wake)
+			for len(pool) <= commitPoolSize/2 {
+				if err := c.refill(ctx, p, pool); err != nil {
+					return nil, err
+				}
+			}
+			go c.keepFilled(p, pool, wake)
+		}
+	}
+	return c, nil
+}
+
+// refill fetches one batch of commitments from p.
+func (c *Coordinator) refill(ctx context.Context, p *peer, pool chan *frost.Commitment) error {
+	commitments, _, err := c.fetchCommitments(ctx, p, commitBatchSize)
+	if err != nil {
+		return err
+	}
+	for _, commitment := range commitments {
+		select {
+		case pool <- commitment:
+		default:
+		}
+	}
+	return nil
+}
+
+// keepFilled tops up pool whenever a signature took a commitment from it.
+func (c *Coordinator) keepFilled(p *peer, pool chan *frost.Commitment, wake chan struct{}) {
+	for range wake {
+		for len(pool) <= commitPoolSize/2 {
+			ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+			err := c.refill(ctx, p, pool)
+			cancel()
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+}
+
+func (c *Coordinator) fetchCommitments(ctx context.Context, p *peer, count uint16) ([]*frost.Commitment, Call, error) {
+	r, elapsed, err := p.call(ctx, OpFrostCommit, binary.BigEndian.AppendUint16(nil, count))
+	call := Call{Signer: p.id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs}
+	if err != nil {
+		return nil, call, err
+	}
+	if len(r.payload) == 0 || len(r.payload)%int(count) != 0 {
+		return nil, call, errors.New("tsig: malformed commitment batch")
+	}
+	size := len(r.payload) / int(count)
+	commitments := make([]*frost.Commitment, count)
+	for i := range commitments {
+		commitments[i] = new(frost.Commitment)
+		if err := commitments[i].Decode(r.payload[i*size : (i+1)*size]); err != nil {
+			return nil, call, err
+		}
+	}
+	return commitments, call, nil
+}
+
+// Public returns the key in the certificate.
+func (c *Coordinator) Public() crypto.PublicKey { return c.public }
+
+// Sign implements crypto.Signer for the two TLS 1.3 signature schemes this
+// package supports: ed25519 and rsa_pss_rsae_sha256.
+func (c *Coordinator) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	switch c.pub.Scheme {
+	case SchemeFrost, SchemePlainEd25519:
+		if opts.HashFunc() != crypto.Hash(0) {
+			return nil, errors.New("tsig: Ed25519 signs the unhashed message")
+		}
+	default:
+		if pss, ok := opts.(*rsa.PSSOptions); !ok || pss.Hash != crypto.SHA256 {
+			return nil, errors.New("tsig: RSA supports only PSS with SHA-256")
+		}
+	}
+	signature, trace, err := c.SignTraced(context.Background(), digest)
+	if err == nil && c.opts.OnTrace != nil {
+		c.opts.OnTrace(trace)
+	}
+	return signature, err
+}
+
+// SignTraced signs input, which is the message for Ed25519 schemes and the
+// SHA-256 digest for RSA schemes, and verifies the result with the standard
+// verifier before returning it.
+func (c *Coordinator) SignTraced(ctx context.Context, input []byte) ([]byte, *Trace, error) {
+	ctx, cancel := context.WithTimeout(ctx, signTimeout)
+	defer cancel()
+	trace := &Trace{
+		Scheme: c.pub.Scheme, Threshold: c.pub.Threshold, Signers: c.pub.Signers,
+		Policy: c.opts.Policy, Transport: c.opts.Transport, Precompute: c.opts.Precompute,
+	}
+	start := time.Now()
+	trace.StartNs = start.UnixNano()
+
+	var signature []byte
+	var err error
+	switch c.pub.Scheme {
+	case SchemePlainEd25519, SchemePlainRSA:
+		signature, err = c.signPlain(ctx, input, trace)
+	case SchemeRSA:
+		signature, err = c.signRSA(ctx, input, trace)
+	case SchemeFrost:
+		signature, err = c.signFrost(ctx, input, trace)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.verify(input, signature); err != nil {
+		return nil, nil, err
+	}
+	trace.TotalNs = time.Since(start).Nanoseconds()
+	return signature, trace, nil
+}
+
+func (c *Coordinator) verify(input, signature []byte) error {
+	switch public := c.public.(type) {
+	case ed25519.PublicKey:
+		if !ed25519.Verify(public, input, signature) {
+			return errors.New("tsig: combined Ed25519 signature does not verify")
+		}
+	case *rsa.PublicKey:
+		return rsa.VerifyPSS(public, crypto.SHA256, input, signature, pssOptions)
+	}
+	return nil
+}
+
+// choose returns the signers a signature will use, per the policy.
+func (c *Coordinator) choose() []*peer {
+	peers := append([]*peer(nil), c.peers...)
+	switch c.opts.Policy {
+	case PolicyFirst:
+		return peers
+	case PolicyFastest:
+		sort.SliceStable(peers, func(i, j int) bool { return peers[i].estimate() < peers[j].estimate() })
+	}
+	return peers[:c.pub.Threshold]
+}
+
+type callResult struct {
+	peer  *peer
+	reply reply
+	call  Call
+	err   error
+}
+
+// fanOut sends the request built by payload to every peer in parallel and
+// returns once need of them answered. Answers that arrive later are dropped.
+func (c *Coordinator) fanOut(
+	ctx context.Context, name string, peers []*peer, need int, op Op, payload func(*peer) []byte, trace *Trace,
+) ([]callResult, error) {
+	start := time.Now()
+	results := make(chan callResult, len(peers))
+	for _, p := range peers {
+		go func() {
+			r, elapsed, err := p.call(ctx, op, payload(p))
+			results <- callResult{
+				peer: p, reply: r, err: err,
+				call: Call{Signer: p.id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs},
+			}
+		}()
+	}
+	var done []callResult
+	var failures []error
+	for range peers {
+		result := <-results
+		if result.err != nil {
+			failures = append(failures, fmt.Errorf("signer %d: %w", result.peer.id, result.err))
+			if len(peers)-len(failures) < need {
+				return nil, fmt.Errorf("tsig: round %s: %w", name, errors.Join(failures...))
+			}
+			continue
+		}
+		done = append(done, result)
+		if len(done) == need {
+			break
+		}
+	}
+	round := Round{Name: name, WallNs: time.Since(start).Nanoseconds()}
+	for _, result := range done {
+		round.Calls = append(round.Calls, result.call)
+	}
+	trace.Rounds = append(trace.Rounds, round)
+	return done, nil
+}
+
+func (c *Coordinator) signPlain(ctx context.Context, input []byte, trace *Trace) ([]byte, error) {
+	done, err := c.fanOut(ctx, "sign", c.peers[:1], 1, OpPlainSign, func(*peer) []byte { return input }, trace)
+	if err != nil {
+		return nil, err
+	}
+	return done[0].reply.payload, nil
+}
+
+func (c *Coordinator) signRSA(ctx context.Context, digest []byte, trace *Trace) ([]byte, error) {
+	public := c.public.(*rsa.PublicKey)
+	// Every signer must sign the same padded value, so the coordinator picks
+	// the PSS salt.
+	padder := &trsa.PSSPadder{Rand: rand.Reader, Opts: pssOptions}
+	padded, err := padder.Pad(public, crypto.SHA256, digest)
+	if err != nil {
+		return nil, err
+	}
+	done, err := c.fanOut(ctx, "share", c.choose(), c.pub.Threshold, OpRSAShare, func(*peer) []byte { return padded }, trace)
+	if err != nil {
+		return nil, err
+	}
+	shares := make([]trsa.SignShare, len(done))
+	for i, result := range done {
+		if err := shares[i].UnmarshalBinary(result.reply.payload); err != nil {
+			return nil, err
+		}
+	}
+	return trsa.CombineSignShares(public, uint(c.pub.Signers), uint(c.pub.Threshold), shares, padded)
+}
+
+func (c *Coordinator) signFrost(ctx context.Context, message []byte, trace *Trace) ([]byte, error) {
+	peers := c.choose()
+	list := make(frost.CommitmentList, 0, len(peers))
+
+	var missing []*peer
+	if c.opts.Precompute {
+		for _, p := range peers {
+			select {
+			case commitment := <-c.pools[p.id-1]:
+				list = append(list, commitment)
+			default:
+				missing = append(missing, p)
+			}
+			select {
+			case c.refills[p.id-1] <- struct{}{}:
+			default:
+			}
+		}
+		trace.PoolMiss = len(missing) > 0
+	} else {
+		missing = peers
+	}
+	if len(missing) > 0 {
+		one := binary.BigEndian.AppendUint16(nil, 1)
+		done, err := c.fanOut(ctx, "commit", missing, len(missing), OpFrostCommit, func(*peer) []byte { return one }, trace)
+		if err != nil {
+			return nil, err
+		}
+		for _, result := range done {
+			commitment := new(frost.Commitment)
+			if err := commitment.Decode(result.reply.payload); err != nil {
+				return nil, err
+			}
+			list = append(list, commitment)
+		}
+	}
+	list.Sort()
+
+	request := encodeFrostSign(message, list)
+	done, err := c.fanOut(ctx, "sign", peers, len(peers), OpFrostSign, func(*peer) []byte { return request }, trace)
+	if err != nil {
+		return nil, err
+	}
+	shares := make([]*frost.SignatureShare, len(done))
+	for i, result := range done {
+		shares[i] = new(frost.SignatureShare)
+		if err := shares[i].Decode(result.reply.payload); err != nil {
+			return nil, err
+		}
+	}
+	// Shares are not verified one by one; SignTraced verifies the combined
+	// signature, which fails if any share is wrong.
+	frostMu.Lock()
+	signature, err := c.frostConf.AggregateSignatures(message, shares, list, false)
+	frostMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return append(signature.R.Encode(), signature.Z.Encode()...), nil
+}

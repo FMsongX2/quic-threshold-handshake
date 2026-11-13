@@ -11,3 +11,5 @@ logs/
 harness/certs/
 __pycache__/
 target/
+# dealer가 만드는 시험용 key share
+harness/keys/

@@ -3,8 +3,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
-RUN CGO_ENABLED=0 go build -o /out/qth-client ./cmd/client \
- && CGO_ENABLED=0 go build -o /out/qth-server-quicgo ./cmd/server-quicgo
+COPY internal ./internal
+RUN for name in client server-quicgo dealer signer signbench; do \
+      CGO_ENABLED=0 go build -o /out/qth-$name ./cmd/$name || exit 1; \
+    done
 
 FROM alpine:3.20
 RUN apk add --no-cache iproute2-tc
