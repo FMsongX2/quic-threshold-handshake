@@ -119,16 +119,20 @@ def remove_all(n: int) -> None:
 
 
 HEDGE = re.compile(r"hedge(\d*)(?:d([\d.]+))?(?:b([\d.]+))?")
+NUDGE = re.compile(r"(fixed|fastest|first)n([\d.]+)")
 
 
 def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
-    """policy is fixed, fastest, first or hedge[N][dF][bB].
+    """policy is fixed, fastest or first, optionally followed by nF, or hedge[N][dF][bB].
 
+    nF pings the signers still silent after F times the expected round trip.
     hedge engages all signers and hedgeN the N nearest. dF delays widening by
     F times the expected response time of the t nearest signers. bB lets at
     most the share B of signatures widen.
     """
     flags = ["-policy", policy, "-transport", transport]
+    if nudge := NUDGE.fullmatch(policy):
+        flags = ["-policy", nudge[1], "-nudge-delay-factor", nudge[2], "-transport", transport]
     if hedge := HEDGE.fullmatch(policy):
         width, delay, budget = hedge.groups()
         flags = [
@@ -280,7 +284,7 @@ def main() -> None:
     max_signers = 0
     try:
         for config, policy, transport, rtt_spec, loss in matrix:
-            if policy == "first" and config["scheme"] != "rsa":
+            if policy.startswith("first") and config["scheme"] != "rsa":
                 continue
             if policy.startswith("hedge") and config["scheme"] != "frost":
                 continue

@@ -1,0 +1,29 @@
+{
+  "scheme": "frost",
+  "t": 2,
+  "n": 5,
+  "precompute": true,
+  "policy": "fastest",
+  "transport": "persistent",
+  "signer_rtts_ms": [
+    50.0,
+    5.0,
+    100.0,
+    1.0,
+    20.0
+  ],
+  "signer_loss_pct": 2.0,
+  "started_unix": 1794592337.7947097,
+  "loadavg_before": [
+    2.41259765625,
+    2.30615234375,
+    2.06884765625
+  ],
+  "exit_code": 0,
+  "duration_s": 35.72595739364624,
+  "loadavg_after": [
+    2.36181640625,
+    2.3037109375,
+    2.07763671875
+  ]
+}

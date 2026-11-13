@@ -63,25 +63,17 @@ type hedgeEvent struct {
 	err      error
 }
 
-// hedgeSlack is added to the hedge delay to cover signer compute time.
-const hedgeSlack = 2 * time.Millisecond
-
 // hedgeBurst caps the hedges a coordinator may save up under HedgeBudget.
 const hedgeBurst = 10
 
-// hedgeDelay is how long a delayed hedge waits for the primary session:
-// HedgeDelayFactor times the round trips the primary needs to its farthest
-// signer, plus hedgeSlack.
+// hedgeDelay is how long a delayed hedge waits for the primary session, which
+// needs two round trips unless its commitments are precomputed.
 func (c *Coordinator) hedgeDelay(primary []*peer) time.Duration {
-	var farthest float64
-	for _, p := range primary {
-		farthest = max(farthest, p.estimate())
-	}
-	rounds := 2.0
+	roundTrips := 2.0
 	if c.opts.Precompute {
-		rounds = 1
+		roundTrips = 1
 	}
-	return time.Duration(c.opts.HedgeDelayFactor*rounds*farthest) + hedgeSlack
+	return c.stallDelay(primary, c.opts.HedgeDelayFactor*roundTrips)
 }
 
 // earnHedge credits one signature toward the hedge budget.

@@ -52,6 +52,10 @@ type Options struct {
 	// HedgeBudget, when positive, caps the share of signatures that may
 	// widen after the delay, for example 0.2 for one in five.
 	HedgeBudget float64
+	// NudgeDelayFactor, when positive, makes the fixed, fastest and first
+	// policies ping the signers that have not answered after this multiple
+	// of the expected round trip. Persistent transport only.
+	NudgeDelayFactor float64
 	// Precompute collects FROST nonce commitments ahead of time, which
 	// leaves one round trip per signature.
 	Precompute bool
@@ -101,6 +105,8 @@ type Trace struct {
 	// commitments.
 	HedgeFired  bool  `json:"hedge_fired,omitempty"`
 	HedgeWaitNs int64 `json:"hedge_wait_ns,omitempty"`
+	// Nudged reports that at least one round pinged a silent signer.
+	Nudged bool `json:"nudged,omitempty"`
 }
 
 // Coordinator turns key shares on remote signers into signatures. It
@@ -332,6 +338,19 @@ func (c *Coordinator) choose() []*peer {
 	return c.peers[:c.pub.Threshold]
 }
 
+// stallSlack is added to stall delays to cover signer compute time.
+const stallSlack = 2 * time.Millisecond
+
+// stallDelay is how long to wait for peers before treating them as stalled:
+// factor times the round trip to the farthest of them, plus stallSlack.
+func (c *Coordinator) stallDelay(peers []*peer, factor float64) time.Duration {
+	var farthest float64
+	for _, p := range peers {
+		farthest = max(farthest, p.estimate())
+	}
+	return time.Duration(factor*farthest) + stallSlack
+}
+
 type callResult struct {
 	peer  *peer
 	reply reply
@@ -355,10 +374,32 @@ func (c *Coordinator) fanOut(
 			}
 		}()
 	}
+	// A request or response lost on an otherwise idle TCP connection waits
+	// for a retransmission timer of about 200 ms. Another packet on the same
+	// connection lets TCP notice the gap and retransmit within a round trip,
+	// so a ping goes to every signer still silent after the nudge delay.
+	var nudge <-chan time.Time
+	if c.opts.NudgeDelayFactor > 0 && c.opts.Transport == TransportPersistent {
+		nudge = time.After(c.stallDelay(peers, c.opts.NudgeDelayFactor))
+	}
+	answered := make(map[*peer]bool, len(peers))
 	var done []callResult
 	var failures []error
-	for range peers {
-		result := <-results
+	for len(answered) < len(peers) {
+		var result callResult
+		select {
+		case result = <-results:
+		case <-nudge:
+			nudge = nil
+			trace.Nudged = true
+			for _, p := range peers {
+				if !answered[p] {
+					go p.call(ctx, OpPing, nil)
+				}
+			}
+			continue
+		}
+		answered[result.peer] = true
 		if result.err != nil {
 			failures = append(failures, fmt.Errorf("signer %d: %w", result.peer.id, result.err))
 			if len(peers)-len(failures) < need {

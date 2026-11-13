@@ -41,7 +41,7 @@ def model_network_ms(meta: dict) -> float:
     """Network term of the delay model without loss: the number of round trips
     times the largest RTT among the signers the policy selects."""
     rtts = meta["signer_rtts_ms"]
-    chosen = rtts[: meta["t"]] if meta["policy"] == "fixed" else sorted(rtts)[: meta["t"]]
+    chosen = rtts[: meta["t"]] if meta["policy"].startswith("fixed") else sorted(rtts)[: meta["t"]]
     rounds = 2 if meta["scheme"] == "frost" and not meta["precompute"] else 1
     trips_per_round = 2 if meta["transport"] == "per-request" else 1
     return rounds * trips_per_round * max(chosen)
@@ -75,10 +75,11 @@ def summarize(cell: Path) -> dict:
         "network_p50": p("network", 50),
         "local_p50": p("local", 50),
         "model_network_ms": model_network_ms(meta),
+        "nudged_share": round(sum(1 for t in traces if t.get("nudged")) / len(traces), 3) if traces else "",
         "hedge_fired_share": round(sum(1 for t in traces if t.get("hedge_fired")) / len(traces), 3) if traces else "",
         "hedge_sessions_mean": round(sum(t.get("hedge_sessions", 0) for t in traces) / len(traces), 2) if traces else "",
         "shares_per_signature_mean": round(
-            sum(t.get("hedge_shares") or (meta["n"] if meta["policy"] == "first" else meta["t"]) for t in traces)
+            sum(t.get("hedge_shares") or (meta["n"] if meta["policy"].startswith("first") else meta["t"]) for t in traces)
             / len(traces), 2
         ) if traces else "",
         "pool_miss_share": round(sum(1 for t in traces if t.get("pool_miss")) / len(traces), 3) if traces else "",
