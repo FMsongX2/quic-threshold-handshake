@@ -143,4 +143,4 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | FROST와 Shoup threshold RSA를 구현해 측정했다. threshold ECDSA는 아직 구현하지 않았다. | 공개 WebPKI에 적용 가능한 scheme이 threshold RSA 하나로 남는지가 달라진다. |
 | hedge 구성의 안전성 | FROST가 동시 세션에서 안전하다는 성질에 기대며, 따로 검토받지 않았다. | 결과를 실제 배치에 대한 권고로 쓸 수 있는지가 달라진다. |
-| coordinator와 signer 사이 연결 | TLS 없는 TCP 연결을 signer마다 하나씩 써서 측정했다. | 연결 수립 비용, "요청마다 새 연결" 조건의 결과, loss가 있을 때의 꼬리 지연과 부하가 높을 때의 지연이 달라진다. 연결을 여러 개 두는 방식과 QUIC이 후보다. |
+| coordinator와 signer 사이 연결 | TLS 없는 TCP로 측정했다. signer당 연결 여러 개와 ping nudge를 기본 구성으로 정했다([results-phase3-connections.md](results-phase3-connections.md)). | TLS를 쓸 때의 연결 수립·유지 비용이 달라진다. QUIC 연결 하나로 같은 결과를 얻는지가 다음 확인 대상이다. |

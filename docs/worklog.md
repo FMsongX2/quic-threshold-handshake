@@ -165,9 +165,23 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 
 - 연결을 유지하는 transport에 signer당 연결 수 K를 option으로 넣었다. 요청은 연결에 차례대로 돌아가며 배정한다. coordinator가 시작할 때 모든 연결을 미리 맺는다.
 - nudge의 ping은 그 요청을 실은 연결로 보낸다. 다른 연결로 보내면 손실된 packet의 재전송을 앞당기지 못하기 때문이다.
-- 지연 hedge는 넓힐 때의 요청을 다음 차례의 연결로 보낸다. 연결이 여러 개이면 3.3절에서 본 재전송 효과가 없을 것으로 예상하며, 이 조합은 측정하지 않았다.
+- 지연 hedge는 넓힐 때의 요청을 다음 차례의 연결로 보낸다. 연결이 여러 개이면 [results-phase3-adaptive.md](results-phase3-adaptive.md) 3.3절에서 본 재전송 효과가 없을 것으로 예상하며, 이 조합은 측정하지 않았다.
 - 예상: 연결이 많을수록 손실 하나가 늦추는 요청의 수는 줄지만, 연결마다 지나가는 packet이 적어져 재전송이 약 200 ms의 timer를 기다리는 일이 다시 늘어난다. 따라서 연결을 늘릴 때는 nudge가 함께 필요하다.
 - 실행 스크립트의 transport 표기는 `persistent16`처럼 뒤에 연결 수를 붙인다.
+
+### signer 연결 pool 측정
+
+| 측정 | 결과 directory | 내용 |
+| --- | --- | --- |
+| 동시 handshake | `results/2026-11-14-conn-pool-conc` | 동시 handshake 100개를 50회, precomputation FROST 2종, signer당 연결 수 {1, 4, 16, 64}, nudge 유무, loss {0, 2}%, 조건마다 5,000개 |
+| 서명 지연 | `results/2026-11-14-conn-pool-policy` | 요청을 하나씩, 연결 수 {1, 4}, nudge 유무, loss {0, 2}%, 조건마다 1,000회 |
+
+결과는 [results-phase3-connections.md](results-phase3-connections.md)에 정리했다.
+
+- 측정 전의 예측이 맞았다. 연결을 16개로 늘리면 loss 2%에서의 T_hs 중앙값이 loss가 없을 때의 값으로 돌아왔고, nudge 없이 연결만 늘리면 100 ms 넘게 늦은 handshake가 0.3%에서 7.3%까지 늘었다. 연결 여러 개와 nudge를 함께 쓰면 둘 다 해결됐다.
+- signer 링크의 loss가 handshake를 늦추는 경로를 둘로 정리했다. 꼬리는 손실된 packet 뒤에 다른 packet이 없을 때의 재전송 대기이고 대책은 nudge다. 중앙값은 한 연결에 몰린 요청이 손실 하나를 함께 기다리는 것이고 대책은 연결 여러 개다.
+- coordinator와 signer 사이 transport의 기본 구성을 "signer당 연결 여러 개 + ping nudge"로 정했다.
+- 첫 실행은 연결 64개 조건에서 서버가 준비 시간 20초를 넘겨 중단됐다. coordinator가 연결을 하나씩 순서대로 맺었기 때문이다. 연결을 한꺼번에 맺도록 고치고 준비 대기 시간을 60초로 늘린 뒤 동시 handshake 측정 전체를 다시 했다. 중단된 실행의 결과는 쓰지 않았다.
 
 ### 남은 일
 
@@ -178,5 +192,6 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 - signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
 - Phase 3의 최적화 문제를 풀지 않았다.
 - signer 장애 조건과 RTT_s가 변하는 조건에서 hedge와 nudge를 측정하지 않았다.
-- signer마다 연결을 여러 개 두거나 QUIC을 쓰는 구성을 구현하지 않았다. 부하와 loss가 함께 있을 때의 지연이 공유 연결 때문이라는 해석은 확인하지 않았다.
+- signer 연결에 QUIC을 쓰는 구성을 구현하지 않았다. 연결 여러 개와 nudge의 조합을 QUIC 연결 하나와 비교하는 것이 다음 후보다.
+- TCP의 손실 복구 동작을 packet 단위로 확인하지 않았다.
 - nudge의 지연 시간에 signer 계산 시간을 반영하지 않았다.
