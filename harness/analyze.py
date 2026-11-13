@@ -8,11 +8,19 @@ number of probe timeouts. Per cell it writes one row to summary.csv.
 
 import argparse
 import csv
+import gzip
 import json
 import math
 from pathlib import Path
 
 RS = "\x1e"
+
+
+def read_lines(path: Path) -> list[str]:
+    """Non-empty lines of path, or of path.gz when the trace is stored compressed."""
+    packed = path.with_name(path.name + ".gz")
+    text = gzip.decompress(packed.read_bytes()).decode() if packed.exists() else path.read_text()
+    return [line for line in text.splitlines() if line]
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -77,7 +85,7 @@ def read_qlog(path: Path) -> dict:
 
 def summarize_cell(cell: Path) -> dict:
     meta = json.loads((cell / "meta.json").read_text())
-    records = [json.loads(line) for line in (cell / "client.jsonl").read_text().splitlines() if line]
+    records = [json.loads(line) for line in read_lines(cell / "client.jsonl")]
     measured = [r for r in records if not r["warmup"]]
     ok = [r for r in measured if r["ok"]]
     for r in ok:

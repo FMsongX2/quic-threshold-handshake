@@ -123,6 +123,42 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 - 넓힐 때 필요한 commitment는 그때 pool에서 꺼내고 모자라면 signer에게서 받는다. 넓히지 않은 서명은 commitment를 signer마다 하나만 쓴다.
 - 실행 스크립트의 정책 표기는 `hedge[N][dF][bB]`다. N은 폭, F는 지연 계수, B는 예산이다. 예를 들어 `hedge4d1.5b0.2`는 폭 4, 계수 1.5, 예산 20%다.
 
+### ping nudge 구현
+
+지연 hedge의 trace에서, 넓혀진 서명의 80~97%를 새 세션이 아니라 처음의 세션이 완성했다는 것을 확인했다. 넓힐 때 같은 TCP 연결로 나간 요청이 손실된 packet의 재전송을 앞당긴 것으로 보고, share를 더 계산하지 않는 방법을 구현했다.
+
+- 정해 둔 시간 안에 응답하지 않은 signer의 연결에 ping 요청을 하나 보낸다. 세션은 그대로 하나다.
+- fixed, fastest, first 정책과 모든 signature scheme에 적용된다. 연결을 유지하는 transport에서만 동작한다.
+- 지연 hedge와 nudge가 같은 지연 시간 계산을 쓴다. 실행 스크립트의 정책 표기는 `fastestn1.5`처럼 정책 이름 뒤에 `nF`를 붙인다.
+
+### RTT 추정 수정
+
+동시 handshake 100개와 loss 2% 조건을 처음 측정했을 때, fastest 정책이 반복 한 번 전체를 RTT_s 50 ms나 100 ms인 signer로 보내는 일이 있었다. 같은 연결에서 함께 지연된 요청 100개의 표본이 "최근 8개 표본" 창을 모두 채워 가까운 signer의 추정이 먼 signer보다 커졌기 때문이다. nudge를 켜면 ping 표본이 더해져 이 일이 더 잦았다.
+
+- 추정을 5초 길이의 시간 창 두 개(현재 창과 직전 창)의 최솟값으로 바꿨다.
+- 바꾸기 전 구현으로 측정한 동시 handshake 결과(5회 반복과 20회 반복)는 버렸고 저장소에 넣지 않았다. 바꾼 뒤 50회 반복으로 다시 측정했다.
+- 요청을 하나씩 보내는 측정(`results/2026-11-14-adaptive-hedge-policy`)은 바꾸기 전 구현으로 했다. fastest와 nudge 조건에서 선택된 signer가 1,000회 내내 가장 가까운 t개였음을 확인하고 그대로 쓴다.
+
+### 적응형 hedge와 nudge 측정
+
+| 측정 | 결과 directory | 내용 |
+| --- | --- | --- |
+| 서명 지연 | `results/2026-11-14-adaptive-hedge-policy` | FROST 3종과 threshold RSA 2종, 정책 fastest·hedge·지연 hedge·nudge·first, loss {0, 2}%, 조건마다 1,000회 |
+| 동시 handshake | `results/2026-11-14-adaptive-hedge-conc` | 동시 handshake 100개를 50회, precomputation FROST 2종, 정책 6종, loss {0, 2}%, 조건마다 5,000개 |
+
+결과는 [results-phase3-adaptive.md](results-phase3-adaptive.md)에 정리했다. 확인한 사실과 그에 따른 결정은 다음과 같다.
+
+- 요청을 하나씩 보낼 때 nudge와 지연 hedge는 loss 2%의 꼬리 지연을 없앴고 loss가 없을 때는 fastest와 같았다. nudge는 share 계산을 늘리지 않으므로 signer 선택의 기본값을 "가장 가까운 t개 + nudge"로 둔다.
+- Phase 2부터 본 200 ms 안팎의 꼬리 지연은 threshold signature의 성질이 아니라 유지되는 TCP 연결에서 packet 하나짜리 요청과 응답이 손실될 때의 복구 지연이라고 결론 내렸다. packet 단위 확인은 하지 않았다.
+- hedge 예산은 부하가 높을 때 넓혀지는 비율을 10~15%로 묶었고 commitment 부족을 86~92%에서 4% 이하로 줄였다.
+- 동시 handshake 100개와 loss 2% 조건에서는 어느 방법도 fastest보다 일관되게 낫지 않았다. 요청들이 signer마다 하나인 연결을 함께 쓰는 것이 원인이라고 보고, signer 연결을 여러 개 두는 방식과 QUIC을 쓰는 방식을 다음 후보로 둔다.
+- tmux session 이름을 `-t qth`처럼 주면 앞부분이 같은 다른 session에도 맞는다. 측정을 이어 붙이는 script에서는 `-t =이름`으로 정확히 지정한다.
+
+### 결과 저장 방식
+
+- 서명·handshake별 기록(`sign.jsonl`, `client.jsonl`, `server-trace.jsonl`)을 gzip으로 압축해 저장소에 넣기로 했다. 이번 측정까지 더하면 `results/`가 122 MB였고 압축 뒤 19 MB다. 이전 측정의 기록도 같은 방식으로 바꿨다. 집계 스크립트는 두 형식을 모두 읽는다.
+- 압축하기 전에 push가 한 번 거부됐다. GitHub의 push protection이 `client.jsonl`에 기록된 QUIC connection ID 하나(client가 만든 무작위 16진수 문자열)를 credential 형식으로 판정했다. 그 값이 connection ID임을 확인했고, 해당 commit은 push하지 않고 압축한 내용으로 다시 만들었다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
@@ -131,5 +167,6 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 - aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
 - signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
 - Phase 3의 최적화 문제를 풀지 않았다.
-- loss가 있으면서 handshake가 몰리는 조건, signer 장애 조건, RTT_s가 변하는 조건에서 hedge를 측정하지 않았다.
-- 부하와 loss에 따라 hedge의 폭을 바꾸는 정책을 구현하지 않았다.
+- signer 장애 조건과 RTT_s가 변하는 조건에서 hedge와 nudge를 측정하지 않았다.
+- signer마다 연결을 여러 개 두거나 QUIC을 쓰는 구성을 구현하지 않았다. 부하와 loss가 함께 있을 때의 지연이 공유 연결 때문이라는 해석은 확인하지 않았다.
+- nudge의 지연 시간에 signer 계산 시간을 반영하지 않았다.

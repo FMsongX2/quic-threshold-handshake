@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "results/2026-11-14-adaptive-hedge-conc",
+    "--configs",
+    "frost:3:5:pre",
+    "--policies",
+    "fastest,fastestn1.5,hedge,hedged1.5,hedged1.5b0.2,hedge4d1.5b0.2",
+    "--rtts",
+    "50/5/100/1/20",
+    "--losses",
+    "0,2",
+    "--conc",
+    "100",
+    "--n",
+    "5000",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:04963ddecd83ab357b3d871c3c4e1958e198702f7712fa8b273ceff82fad000a"
+  }
+}

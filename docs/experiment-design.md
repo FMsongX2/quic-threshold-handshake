@@ -15,6 +15,8 @@
 | 서명 | precomputation | 사용, 미사용 |
 | 서명 | signer 선택 정책 | 고정 집합(fixed), RTT_s가 가장 짧은 t개(fastest), n개 전체에 요청 후 먼저 온 t개(first, share가 독립인 threshold RSA에 한정), 가까운 m개의 모든 t개 조합으로 FROST 세션을 동시에 진행(hedge) |
 | 서명 | hedge의 폭 m | t부터 n까지 |
+| 서명 | hedge 지연 계수와 예산 | 계수 0(처음부터 모든 세션), 1, 1.5, 3. 예산 없음, 0.2 |
+| 서명 | ping nudge | 미사용, 지연 계수 1.5, 3 |
 | 서명 | signer 간 transport | 유지되는 연결, 요청마다 새 연결 |
 | 네트워크 | RTT_c | 1 ms, 20 ms, 100 ms |
 | 네트워크 | client와 front server 사이 loss | 0%, 1% |
@@ -126,11 +128,13 @@ Phase 2 측정으로 이 모델을 다음과 같이 구체화했다([results-pha
 - loss가 없고 요청이 하나씩 올 때 D_sign의 중앙값은 $R \cdot \max_{i \in S} rtt_i$에 scheme별 계산 시간을 더한 값이다. 요청마다 TCP 연결을 새로 맺으면 $R$ 대신 $2R$을 쓴다.
 - signer 집합 $S$의 응답을 모두 기다리는 구성에서, signer 링크의 방향별 loss율이 $p$일 때 서명이 재전송을 기다리게 될 확률은 $1 - (1 - p)^{2R|S|}$로 근사된다. 측정한 재전송 대기는 200 ms 안팎이었다.
 - signer $m$개에 요청하고 그중 $t$개의 응답으로 서명이 완성되는 구성(threshold RSA의 first, FROST의 hedge)에서는 이 확률이 $m$개 중 손실 없이 응답한 signer가 $t$개 미만일 확률로 바뀐다. 한 signer가 손실 없이 응답할 확률은 $(1 - p)^{2}$이다([results-phase3-hedging.md](results-phase3-hedging.md) 3.1절).
+- 위 두 항목의 "재전송을 기다리는" 시간은 연결에 뒤따르는 packet이 없을 때 약 200 ms다. 응답이 없는 signer의 연결에 ping을 보내면(nudge) 이 시간은 ping을 보낸 시점에 그 signer의 왕복 시간의 두 배쯤을 더한 값으로 줄어든다([results-phase3-adaptive.md](results-phase3-adaptive.md) 3절).
+- 요청이 동시에 오고 signer 링크에 loss가 있으면, signer마다 하나인 연결에서 손실 하나가 뒤따르는 요청을 함께 늦춘다. 이 지연은 모델에 아직 넣지 않았다([results-phase3-adaptive.md](results-phase3-adaptive.md) 4.2절).
 - 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다.
 
 ## 5. 최적화 문제
 
-결정 변수 $x$는 signature scheme, $(t, n)$, signer 배치, signer 선택 정책, hedge의 폭 $m$, precomputation 사용 여부, signer 간 transport의 조합이다. 구현체와 네트워크·시스템 환경은 주어진 조건으로 둔다.
+결정 변수 $x$는 signature scheme, $(t, n)$, signer 배치, signer 선택 정책, hedge의 폭 $m$과 지연 계수·예산, ping nudge 사용 여부, precomputation 사용 여부, signer 간 transport의 조합이다. 구현체와 네트워크·시스템 환경은 주어진 조건으로 둔다.
 
 $$\min_{x} \; Q_{p}\left(T_{hs}(x)\right) \quad \text{subject to} \quad t \ge t_{min}, \;\; d(x) \ge d_{min}, \;\; A(x, f) \ge a_{min}, \;\; cost(x) \le B$$
 

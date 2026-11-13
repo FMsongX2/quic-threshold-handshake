@@ -172,7 +172,7 @@ signer 5개의 RTT_s를 signer 번호 순서대로 50, 5, 100, 1, 20 ms로 두�
 
 **loss가 없을 때.** D_sign 중앙값은 모델의 네트워크 항에 scheme별 계산 시간을 더한 값과 맞았다. 중앙값에서 모델 값을 뺀 차이는 FROST 구성에서 0.3~0.6 ms, threshold RSA 구성에서 4.0~7.1 ms였다. 같은 t에서 중앙값이 가장 짧은 구성은 frost-pre에 fastest 정책을 쓴 구성이었다(t = 2에서 5.29 ms, t = 3에서 20.37 ms). t를 2에서 3으로 올리면 fastest 정책의 D_sign은 세 번째로 가까운 signer의 RTT_s가 정했다.
 
-**loss 2%, 선택한 signer 전부를 기다리는 구성.** fixed와 fastest 정책에서는 선택한 t개의 응답이 모두 와야 서명이 완성된다. 이 구성들의 p95는 loss가 없을 때보다 170~310 ms 길었다. 예외는 rsa·fixed·(2, 5)로, p95는 1.3 ms만 늘었고 p99가 317 ms였다. 늘어난 크기는 Linux TCP의 최소 재전송 timeout 200 ms와 같은 범위이며, packet 단위로 재전송을 확인하지는 않았다.
+**loss 2%, 선택한 signer 전부를 기다리는 구성.** fixed와 fastest 정책에서는 선택한 t개의 응답이 모두 와야 서명이 완성된다. 이 구성들의 p95는 loss가 없을 때보다 170~310 ms 길었다. 예외는 rsa·fixed·(2, 5)로, p95는 1.3 ms만 늘었고 p99가 317 ms였다. 늘어난 크기는 Linux TCP의 최소 재전송 timeout 200 ms와 같은 범위이며, packet 단위로 재전송을 확인하지는 않았다. 이 지연을 줄이는 방법은 [results-phase3-adaptive.md](results-phase3-adaptive.md)에서 측정했다.
 
 **loss 2%, first 정책.** threshold RSA에 first 정책을 쓰면 p95가 t = 2에서 27.14 ms, t = 3에서 68.88 ms였다. 가장 가까운 signer의 응답이 늦어지면 다음으로 가까운 signer의 share가 대신 쓰였다. t = 2에서 RTT_s 20 ms인 signer의 share가 400회 중 28회, 50 ms인 signer의 share가 2회 쓰였다. 이 정책은 서명마다 n개 signer가 모두 share를 계산하므로 signer 계산량이 t개만 쓰는 정책의 n/t배다.
 

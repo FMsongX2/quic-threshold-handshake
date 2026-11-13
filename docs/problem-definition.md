@@ -76,7 +76,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 
 - FROST가 만드는 서명 중 Ed25519와 Ed448 ciphersuite의 서명만 RFC 8032 검증기로 검증된다[6]. FROST(P-256, SHA-256)의 결과는 Schnorr 서명이어서 TLS의 ECDSA 검증을 통과하지 못한다.
 - CA/Browser Forum Baseline Requirements 6.1.5절은 RSA와 NIST P-256·P-384·P-521 키만 허용한다[19]. Ed25519 인증서는 사설 PKI에서만 쓸 수 있으므로, FROST 구성의 결과는 사설 PKI 환경에 한정된다.
-- FROST의 signature share는 round 2에 참여하는 signer 집합의 commitment 목록에 묶여 있다[6]. 따라서 n개 전체에 요청을 보내고 먼저 도착한 t개를 쓰는 방식은 그대로 적용되지 않으며, signer 집합을 먼저 고르거나 서로 다른 집합으로 여러 세션을 동시에 진행해야 한다. FROST는 robustness를 제공하지 않아 참여자 하나가 응답하지 않으면 그 세션은 실패한다. ROAST는 이 문제를 다루는 wrapper protocol이다[14]. 이 연구는 서로 다른 signer 집합의 세션을 동시에 진행하는 hedge 정책을 구현해 측정했다([results-phase3-hedging.md](results-phase3-hedging.md)).
+- FROST의 signature share는 round 2에 참여하는 signer 집합의 commitment 목록에 묶여 있다[6]. 따라서 n개 전체에 요청을 보내고 먼저 도착한 t개를 쓰는 방식은 그대로 적용되지 않으며, signer 집합을 먼저 고르거나 서로 다른 집합으로 여러 세션을 동시에 진행해야 한다. FROST는 robustness를 제공하지 않아 참여자 하나가 응답하지 않으면 그 세션은 실패한다. ROAST는 이 문제를 다루는 wrapper protocol이다[14]. 이 연구는 서로 다른 signer 집합의 세션을 동시에 진행하는 hedge 정책을 구현해 측정했다([results-phase3-hedging.md](results-phase3-hedging.md), [results-phase3-adaptive.md](results-phase3-adaptive.md)).
 - Shoup threshold RSA의 signature share는 signer마다 독립적으로 계산되므로, n개 전체에 요청하고 먼저 도착한 유효한 share t개를 결합할 수 있다[11].
 - nonce commitment와 presignature는 한 번만 써야 한다. 같은 값을 두 서명에 쓰면 서명 키가 드러난다. precomputation을 쓰는 구성은 미리 만든 값의 사용 여부를 signer가 장애 후에도 잃지 않도록 관리해야 하며, 이 관리 비용도 측정 대상에 넣는다.
 
@@ -143,4 +143,4 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | FROST와 Shoup threshold RSA를 구현해 측정했다. threshold ECDSA는 아직 구현하지 않았다. | 공개 WebPKI에 적용 가능한 scheme이 threshold RSA 하나로 남는지가 달라진다. |
 | hedge 구성의 안전성 | FROST가 동시 세션에서 안전하다는 성질에 기대며, 따로 검토받지 않았다. | 결과를 실제 배치에 대한 권고로 쓸 수 있는지가 달라진다. |
-| coordinator와 signer 사이 연결 | TLS 없는 TCP로 측정했다. | 연결 수립 비용과 "요청마다 새 연결" 조건의 결과가 달라진다. |
+| coordinator와 signer 사이 연결 | TLS 없는 TCP 연결을 signer마다 하나씩 써서 측정했다. | 연결 수립 비용, "요청마다 새 연결" 조건의 결과, loss가 있을 때의 꼬리 지연과 부하가 높을 때의 지연이 달라진다. 연결을 여러 개 두는 방식과 QUIC이 후보다. |

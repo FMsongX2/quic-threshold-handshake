@@ -37,6 +37,8 @@ RTT 추정은 Phase 2의 이동 평균에서 최근 8개 표본의 최솟값으�
 
 측정 조건은 Phase 2와 같다. signer 5개의 RTT_s는 signer 번호 순서대로 50, 5, 100, 1, 20 ms이고, coordinator와 signer 사이 연결은 유지하는 방식이다. loss는 coordinator와 signer의 송신 방향에 각각 주었다. 측정 중 host의 1분 load average는 1.6~4.0이었다.
 
+이 문서에서 본 200 ms 안팎의 꼬리 지연의 원인과, 처음부터 모든 세션을 시작하지 않는 방법은 [results-phase3-adaptive.md](results-phase3-adaptive.md)에서 이어서 다룬다.
+
 ## 2. 요약
 
 1. hedge는 signer 링크의 loss 2%에서 FROST의 꼬리 지연을 줄였다. precomputation을 쓰는 FROST (2, 5)에서 D_sign의 p95는 219.1 ms에서 20.4~20.8 ms로, (3, 5)에서 237.6 ms에서 50.9~51.7 ms로 줄었다. 중앙값의 차이는 1.3 ms 이하였다.

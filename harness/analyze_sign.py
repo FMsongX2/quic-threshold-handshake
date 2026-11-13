@@ -12,15 +12,13 @@ import csv
 import json
 from pathlib import Path
 
-from analyze import percentile
+from analyze import percentile, read_lines
 
 MS = 1e6
 
 
 def load_traces(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line]
+    return [json.loads(line) for line in read_lines(path)]
 
 
 def decompose(trace: dict) -> dict:
@@ -49,7 +47,7 @@ def model_network_ms(meta: dict) -> float:
 
 def summarize(cell: Path) -> dict:
     meta = json.loads((cell / "meta.json").read_text())
-    handshake = (cell / "client.jsonl").exists()
+    handshake = any((cell / name).exists() for name in ("client.jsonl", "client.jsonl.gz"))
     traces = load_traces(cell / ("server-trace.jsonl" if handshake else "sign.jsonl"))
     parts = [decompose(t) for t in traces]
 
@@ -93,7 +91,7 @@ def summarize(cell: Path) -> dict:
         "loadavg1_before": round(meta["loadavg_before"][0], 2),
     }
     if handshake:
-        records = [json.loads(line) for line in (cell / "client.jsonl").read_text().splitlines() if line]
+        records = [json.loads(line) for line in read_lines(cell / "client.jsonl")]
         ok = [r["t_hs_ms"] for r in records if not r["warmup"] and r["ok"]]
         row["client_rtt_ms"] = meta["client_rtt_ms"]
         row["handshakes"] = len([r for r in records if not r["warmup"]])
