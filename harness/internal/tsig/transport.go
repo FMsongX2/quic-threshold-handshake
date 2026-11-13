@@ -3,7 +3,6 @@ package tsig
 import (
 	"context"
 	"errors"
-	"math"
 	"net"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ const (
 
 const (
 	dialTimeout = 5 * time.Second
-	// rttWindow is the number of recent samples the RTT estimate looks at.
-	rttWindow = 8
+	// rttWindow is the length of one RTT estimation window.
+	rttWindow = 5 * time.Second
 )
 
 // peer is the coordinator's view of one signer.
@@ -32,30 +31,35 @@ type peer struct {
 
 	mu   sync.Mutex
 	conn *muxConn
-	// samples holds the last rttWindow values of round-trip time minus
-	// signer compute time, in nanoseconds.
-	samples [rttWindow]float64
-	seen    int
+	// cur and prev are the smallest samples of round-trip time minus signer
+	// compute time, in nanoseconds, in the current and the previous window.
+	cur, prev float64
+	curStart  time.Time
 }
 
-// estimate is the smallest recent sample. A minimum ignores the samples a
-// retransmission or a busy signer inflated; an average would let one such
-// sample push a near signer behind a far one.
+// estimate is the smallest sample of the last two windows. A minimum ignores
+// the samples a retransmission or a busy signer inflated; an average would
+// let one such sample push a near signer behind a far one. Windows are
+// measured in time, not in samples, so that a burst of concurrent requests
+// delayed together cannot displace every normal sample.
 func (p *peer) estimate() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	lowest := math.Inf(1)
-	for _, sample := range p.samples[:min(p.seen, rttWindow)] {
-		lowest = min(lowest, sample)
-	}
-	return lowest
+	return min(p.cur, p.prev)
 }
 
 func (p *peer) observe(sampleNs float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.samples[p.seen%rttWindow] = sampleNs
-	p.seen++
+	now := time.Now()
+	switch {
+	case p.curStart.IsZero():
+		p.cur, p.prev, p.curStart = sampleNs, sampleNs, now
+	case now.Sub(p.curStart) > rttWindow:
+		p.prev, p.cur, p.curStart = p.cur, sampleNs, now
+	default:
+		p.cur = min(p.cur, sampleNs)
+	}
 }
 
 // call sends one request and waits for its response. The returned duration
