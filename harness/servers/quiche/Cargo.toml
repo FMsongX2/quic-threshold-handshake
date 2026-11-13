@@ -1,0 +1,12 @@
+[package]
+name = "qth-server-quiche"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Same range as quiche 0.30.1 so both resolve to one boring version.
+boring = ">=4.19, <6"
+mio = { version = "1", features = ["net", "os-poll"] }
+quiche = "=0.30.1"
+ring = "0.17"

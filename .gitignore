@@ -6,3 +6,8 @@ third_party/
 logs/
 *.pcap
 *.qlog
+*.sqlog
+# 실행할 때 생성하는 시험용 인증서와 개인키
+harness/certs/
+__pycache__/
+target/
