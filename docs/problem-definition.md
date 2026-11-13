@@ -116,6 +116,7 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 - 가설 H4: t의 하한과 failure domain 수의 하한이 주어지면, T_hs의 p99를 최소화하는 구성은 signer 배치와 signer 선택 정책으로 결정되며, signer별 응답 시간 분포의 order statistic으로 만든 모델이 실측 순위를 재현한다.
 - 예측: 모델이 예측한 상위 3개 구성 안에 실측 p99가 가장 낮은 구성이 들어간다.
 - 최소 실험: signer 5개를 RTT_s가 서로 다른 세 region에 배치하고, t가 2와 3일 때 가능한 signer 선택 정책을 전수 측정해 모델 예측과 비교한다.
+- 중간 결과: signer 5개의 RTT_s를 서로 다르게 둔 한 가지 배치에서 D_sign을 측정했고 예측과 어긋나지 않았다. loss가 있을 때의 순위는 loss를 넣지 않은 모델로 설명되지 않았다. 판정은 Phase 3으로 미룬다([results-phase2-signer.md](results-phase2-signer.md) 5절, 6절).
 
 ## 6. 범위
 
@@ -140,4 +141,5 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | "하위 서버 간 핸드셰이크 지연시간"의 해석 | signer들이 서명에 협력하느라 생기는 지연이 client가 관측하는 QUIC handshake 시간에 주는 영향으로 해석했다. coordinator와 signer 사이 연결을 맺는 비용은 "signer 간 transport" 변인으로 포함했다. | signer끼리 맺는 handshake 자체가 주 측정 대상이라면 T_hs의 정의와 RQ3이 바뀐다. |
 | 산출물의 형태와 마감 | 정해지지 않았다. | 구현체 수와 실험 격자의 크기를 정한다. |
 | 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
-| signature scheme의 우선순위 | 구현이 단순한 FROST와 Shoup threshold RSA를 먼저 하고 threshold ECDSA를 뒤에 둔다. | 공개 WebPKI에 적용 가능한 결과를 언제 얻는지가 달라진다. |
+| signature scheme의 우선순위 | FROST와 Shoup threshold RSA를 구현해 측정했다. threshold ECDSA는 아직 구현하지 않았다. | 공개 WebPKI에 적용 가능한 scheme이 threshold RSA 하나로 남는지가 달라진다. |
+| coordinator와 signer 사이 연결 | TLS 없는 TCP로 측정했다. | 연결 수립 비용과 "요청마다 새 연결" 조건의 결과가 달라진다. |

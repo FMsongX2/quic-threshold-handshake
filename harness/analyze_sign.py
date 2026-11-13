@@ -36,6 +36,16 @@ def decompose(trace: dict) -> dict:
     }
 
 
+def model_network_ms(meta: dict) -> float:
+    """Network term of the delay model without loss: the number of round trips
+    times the largest RTT among the signers the policy selects."""
+    rtts = meta["signer_rtts_ms"]
+    chosen = rtts[: meta["t"]] if meta["policy"] == "fixed" else sorted(rtts)[: meta["t"]]
+    rounds = 2 if meta["scheme"] == "frost" and not meta["precompute"] else 1
+    trips_per_round = 2 if meta["transport"] == "per-request" else 1
+    return rounds * trips_per_round * max(chosen)
+
+
 def summarize(cell: Path) -> dict:
     meta = json.loads((cell / "meta.json").read_text())
     handshake = (cell / "client.jsonl").exists()
@@ -63,6 +73,7 @@ def summarize(cell: Path) -> dict:
         "compute_p50": p("compute", 50),
         "network_p50": p("network", 50),
         "local_p50": p("local", 50),
+        "model_network_ms": model_network_ms(meta),
         "pool_miss_share": round(sum(1 for t in traces if t.get("pool_miss")) / len(traces), 3) if traces else "",
         "used_signers": " ".join(
             f"{signer}:{count}" for signer, count in sorted(

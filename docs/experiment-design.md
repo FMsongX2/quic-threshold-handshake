@@ -33,6 +33,7 @@
 | probe packet 수 | handshake가 complete 상태가 되기 전에 client가 보낸 packet 수에서 서명 지연이 없을 때의 값을 뺀 수 | client qlog |
 | client의 첫 RTT sample | client가 handshake에서 처음 얻은 RTT sample. 서버가 서명 전에 응답하지 않으면 서명 지연이 더해진다. | client qlog |
 | handshake 처리율 | 서버가 T_hs의 증가 없이 지속할 수 있는 초당 handshake 수 | client |
+| signer 처리율 | signer 하나가 요청을 줄 세우지 않고 처리할 수 있는 초당 signature share 수 | signer가 보고한 계산 시간, 동시 handshake 조건의 D_sign |
 | handshake 성공률 | 시도한 handshake 중 제한 시간 안에 complete 상태가 된 비율 | client |
 | 서버 CPU 시간 | handshake 하나에 front server와 signer가 쓴 CPU 시간의 합 | process 통계 |
 | signer 간 통신량 | 서명 하나에 coordinator와 signer가 주고받은 메시지 수와 byte 수 | signer 서비스 |
@@ -95,6 +96,8 @@ signer 서비스와 coordinator를 만들어 RQ2에 답하고, Phase 1의 결과
 
 발표 자료와 blog에 실린 계산 시간[9][21]은 장비와 구현이 달라 이 실험의 예측에만 쓰고 결과로 인용하지 않는다.
 
+FROST와 threshold RSA의 측정 결과는 [results-phase2-signer.md](results-phase2-signer.md)에 있다. 가설 H2의 예측이 맞았고, quic-go 서버에 실제 signer를 붙인 handshake에서 T_hs 중앙값과 D_sign 중앙값의 차이는 10개 조건에서 21.0~21.2 ms로 일정했다. 남은 측정은 threshold ECDSA, TLS를 쓰는 signer 연결, signer에 CPU를 더 준 조건, aioquic·quiche 서버에 실제 signer를 붙인 handshake다.
+
 ### Phase 3. 최적화
 
 RQ4에 답한다. 4절의 모델을 Phase 1·2의 측정값으로 맞추고, 5절의 문제를 푼 뒤 예측한 구성을 실측으로 검증한다.
@@ -116,6 +119,12 @@ $$D_{sign} = W + \sum_{r=1}^{R} \max_{i \in S}\left(rtt_i^{(r)} + c_i^{(r)}\righ
 $W$는 coordinator에서 요청이 대기한 시간, $rtt_i^{(r)}$는 round $r$에서 signer $i$와의 왕복 시간, $c_i^{(r)}$는 signer $i$의 round $r$ 계산 시간, $c_{agg}$는 share 결합과 서명 검증 시간이다. round마다 가장 느린 signer가 지연을 정한다.
 
 share가 서로 독립이어서 $n$개 전체에 요청하고 먼저 온 $t$개를 쓰는 scheme에서는 합 안의 최댓값이 $n$개 응답 시간 중 $t$번째로 작은 값으로 바뀐다. loss가 있으면 $rtt_i^{(r)}$의 분포에 signer 간 transport의 재전송 timer가 만드는 긴 꼬리가 붙는다.
+
+Phase 2 측정으로 이 모델을 다음과 같이 구체화했다([results-phase2-signer.md](results-phase2-signer.md) 3절, 5절).
+
+- loss가 없고 요청이 하나씩 올 때 D_sign의 중앙값은 $R \cdot \max_{i \in S} rtt_i$에 scheme별 계산 시간을 더한 값이다. 요청마다 TCP 연결을 새로 맺으면 $R$ 대신 $2R$을 쓴다.
+- signer 집합 $S$의 응답을 모두 기다리는 구성에서, signer 링크의 방향별 loss율이 $p$일 때 서명이 재전송을 기다리게 될 확률은 $1 - (1 - p)^{2R|S|}$로 근사된다. 측정한 재전송 대기는 200 ms 안팎이었다.
+- 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다.
 
 ## 5. 최적화 문제
 

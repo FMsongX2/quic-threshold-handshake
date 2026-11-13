@@ -50,3 +50,34 @@ library 선정은 다음과 같다.
 
 - signer마다 container를 하나씩 띄우고 signer 전용 bridge network에 연결한다. 실행 스크립트는 `harness/run_sign.py`, 집계 스크립트는 `harness/analyze_sign.py`다.
 - coordinator와 signer 사이의 RTT는 signer container의 송신 방향에만 왕복 지연 전체를 걸어 만든다. coordinator는 signer마다 다른 지연을 한 interface에서 걸어야 해서 설정이 복잡해지기 때문이다. 요청과 응답 한 쌍의 왕복 시간은 양쪽에 절반씩 건 경우와 같다. loss는 양쪽 송신 방향에 건다.
+
+### Phase 2: 측정
+
+실행한 측정과 결과의 위치는 다음과 같다. 결과는 [results-phase2-signer.md](results-phase2-signer.md)에 정리했다.
+
+| 측정 | 결과 directory | 내용 |
+| --- | --- | --- |
+| 서명 지연 분해 | `results/2026-11-13-phase2-dsign` | scheme 8종 × RTT_s {0, 5, 50} ms × transport 2종, 조건마다 200회 |
+| signer 배치와 선택 정책 | `results/2026-11-13-phase2-policy` | signer 5개의 RTT_s가 50·5·100·1·20 ms인 배치, 정책 3종, loss {0, 2}%, 조건마다 400회 |
+| handshake | `results/2026-11-13-phase2-handshake` | quic-go 서버에 coordinator를 붙여 scheme 5종 × RTT_s {5, 50} ms, 조건마다 50회 |
+| 동시 handshake | `results/2026-11-13-phase2-handshake-conc` | 동시 handshake 100개, scheme 4종, RTT_s 5 ms, 조건마다 500회 |
+
+측정에서 확인한 사실과 그에 따른 결정은 다음과 같다.
+
+- 가설 H2의 예측이 맞았다. D_sign에서 RTT_s에 비례하는 부분은 왕복 수와 RTT_s의 곱이었다.
+- 실제 signer를 붙인 handshake에서도 T_hs는 지연 없는 handshake 시간과 D_sign의 합이었다. Phase 1에서 정한 모델을 유지한다.
+- 동시 handshake 100개에서 threshold RSA의 D_sign 중앙값이 9 ms에서 258 ms로 늘었다. signer가 share 하나에 4~5 ms를 쓰고 CPU 하나에 고정돼 있어 요청이 줄을 서기 때문이다. signer의 처리 용량을 종속 변인으로 다뤄야 한다.
+- 측정 중 host의 다른 프로세스가 CPU 9번을 계속 100% 쓰고 있었고 virtual machine의 thread가 여러 CPU에 걸쳐 있었다. frost (3, 5) 조건에서 세 번째 signer의 응답이 0.5~0.8 ms 늦게 관측됐는데 이 영향일 수 있다. RTT_s 0 ms 조건의 1 ms 미만 차이는 이 잡음보다 작으므로 비교에 쓰지 않는다.
+- signer마다 RTT_s가 다른 배치에서 loss가 없을 때의 D_sign 중앙값은 "왕복 수 × 선택된 signer 중 가장 큰 RTT_s"에 계산 시간을 더한 값과 맞았다. 이 식을 모델의 네트워크 항으로 쓴다.
+- signer 링크의 loss 2%에서, 선택한 signer 전부를 기다리는 구성은 서명의 5~21%가 100 ms 넘게 늦어졌다. 그 비율은 1 − 0.98^(2Rt)와 4%p 안에서 맞았다. 모델에 loss 항으로 넣는다.
+- threshold RSA에 first 정책(전체에 요청, 먼저 온 t개 사용)을 쓰면 같은 loss에서 800회 중 1회만 늦어졌다. FROST는 share가 signer 집합에 묶여 이 정책을 쓸 수 없다. FROST에서 같은 효과를 내는 방법을 Phase 3의 후보로 둔다.
+- 이동 평균으로 가장 빠른 signer를 고르는 fastest 정책은 loss가 있을 때 먼 signer에 머무는 경우가 있었다. 재전송으로 늦어진 응답 하나가 평균을 크게 올리고, 선택되지 않은 signer의 평균은 갱신되지 않기 때문이다. 이 정책은 실험용 구현이므로 결과를 "가장 빠른 signer를 고르는 정책 일반"의 성능으로 읽지 않는다.
+
+### 남은 일
+
+- threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
+- coordinator와 signer 사이 연결에 TLS를 넣지 않았다.
+- s2n-quic 서명 지연 서버, 두 번째 client 구현체, RTT_c 1 ms와 100 ms 조건을 측정하지 않았다.
+- aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
+- signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
+- Phase 3의 최적화 문제를 풀지 않았다.

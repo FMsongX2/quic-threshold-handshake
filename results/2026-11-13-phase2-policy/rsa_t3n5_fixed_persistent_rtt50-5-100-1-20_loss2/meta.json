@@ -1,0 +1,29 @@
+{
+  "scheme": "rsa",
+  "t": 3,
+  "n": 5,
+  "precompute": false,
+  "policy": "fixed",
+  "transport": "persistent",
+  "signer_rtts_ms": [
+    50.0,
+    5.0,
+    100.0,
+    1.0,
+    20.0
+  ],
+  "signer_loss_pct": 2.0,
+  "started_unix": 1794564413.8173563,
+  "loadavg_before": [
+    2.2509765625,
+    2.21826171875,
+    2.46484375
+  ],
+  "exit_code": 0,
+  "duration_s": 61.18542289733887,
+  "loadavg_after": [
+    2.21533203125,
+    2.234375,
+    2.4541015625
+  ]
+}
