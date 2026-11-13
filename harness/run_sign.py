@@ -124,21 +124,27 @@ NUDGE = re.compile(r"(fixed|fastest|first)n([\d.]+)")
 
 def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
     """policy is fixed, fastest or first, optionally followed by nF, or hedge[N][dF][bB].
+    transport is per-request or persistent[K].
 
     nF pings the signers still silent after F times the expected round trip.
     hedge engages all signers and hedgeN the N nearest. dF delays widening by
     F times the expected response time of the t nearest signers. bB lets at
-    most the share B of signatures widen.
+    most the share B of signatures widen. persistentK keeps K connections per
+    signer.
     """
-    flags = ["-policy", policy, "-transport", transport]
+    flags = ["-policy", policy]
     if nudge := NUDGE.fullmatch(policy):
-        flags = ["-policy", nudge[1], "-nudge-delay-factor", nudge[2], "-transport", transport]
+        flags = ["-policy", nudge[1], "-nudge-delay-factor", nudge[2]]
     if hedge := HEDGE.fullmatch(policy):
         width, delay, budget = hedge.groups()
         flags = [
             "-policy", "hedge", "-hedge-width", width or "0", "-hedge-delay-factor", delay or "0",
-            "-hedge-budget", budget or "0", "-transport", transport,
+            "-hedge-budget", budget or "0",
         ]
+    if transport.startswith("persistent"):
+        flags += ["-transport", "persistent", "-signer-conns", transport[len("persistent"):] or "1"]
+    else:
+        flags += ["-transport", transport]
     if config["precompute"]:
         flags.append("-precompute")
     return flags

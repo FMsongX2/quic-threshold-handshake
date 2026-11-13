@@ -55,6 +55,8 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 		{SchemeFrost, 3, 5, Options{Policy: PolicyHedge, HedgeWidth: 4, HedgeDelayFactor: 1.5, HedgeBudget: 0.2, Precompute: true}},
 		{SchemeRSA, 2, 3, Options{}},
 		{SchemeRSA, 2, 3, Options{NudgeDelayFactor: 0.001}},
+		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst, Conns: 4}},
+		{SchemeFrost, 2, 3, Options{Policy: PolicyFastest, NudgeDelayFactor: 0.001, Conns: 4, Precompute: true}},
 		{SchemeFrost, 2, 3, Options{Policy: PolicyFastest, NudgeDelayFactor: 0.001}},
 		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst}},
 		{SchemeRSA, 2, 3, Options{Policy: PolicyFastest, Transport: TransportPerRequest}},

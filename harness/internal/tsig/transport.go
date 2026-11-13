@@ -10,8 +10,8 @@ import (
 
 // Transport selects how the coordinator reaches a signer.
 const (
-	// TransportPersistent keeps one TCP connection per signer and multiplexes
-	// requests on it.
+	// TransportPersistent keeps Options.Conns TCP connections per signer and
+	// multiplexes requests on them in turn.
 	TransportPersistent = "persistent"
 	// TransportPerRequest opens a new TCP connection for every request.
 	TransportPerRequest = "per-request"
@@ -29,8 +29,11 @@ type peer struct {
 	addr      string
 	transport string
 
-	mu   sync.Mutex
-	conn *muxConn
+	mu sync.Mutex
+	// conns are the persistent connections to the signer, dialed on first
+	// use; next is the round-robin position.
+	conns []*muxConn
+	next  int
 	// cur and prev are the smallest samples of round-trip time minus signer
 	// compute time, in nanoseconds, in the current and the previous window.
 	cur, prev float64
@@ -62,17 +65,32 @@ func (p *peer) observe(sampleNs float64) {
 	}
 }
 
-// call sends one request and waits for its response. The returned duration
+// pick returns the persistent connection slot the next request should use.
+func (p *peer) pick() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	slot := p.next % len(p.conns)
+	p.next++
+	return slot
+}
+
+// call sends one request on the next connection in turn.
+func (p *peer) call(ctx context.Context, op Op, payload []byte) (reply, time.Duration, error) {
+	return p.callOn(ctx, p.pick(), op, payload)
+}
+
+// callOn sends one request on the persistent connection in slot and waits
+// for its response; per-request transport ignores slot. The returned duration
 // covers everything from just before the send to just after the receive,
 // including the TCP handshake in per-request mode.
-func (p *peer) call(ctx context.Context, op Op, payload []byte) (reply, time.Duration, error) {
+func (p *peer) callOn(ctx context.Context, slot int, op Op, payload []byte) (reply, time.Duration, error) {
 	start := time.Now()
 	var r reply
 	var err error
 	if p.transport == TransportPerRequest {
 		r, err = p.callOnce(ctx, op, payload)
 	} else {
-		r, err = p.callPersistent(ctx, op, payload)
+		r, err = p.callPersistent(ctx, slot, op, payload)
 	}
 	elapsed := time.Since(start)
 	if err == nil {
@@ -102,9 +120,9 @@ func (p *peer) callOnce(ctx context.Context, op Op, payload []byte) (reply, erro
 	return r, err
 }
 
-func (p *peer) callPersistent(ctx context.Context, op Op, payload []byte) (reply, error) {
+func (p *peer) callPersistent(ctx context.Context, slot int, op Op, payload []byte) (reply, error) {
 	p.mu.Lock()
-	conn := p.conn
+	conn := p.conns[slot]
 	if conn == nil || conn.broken() {
 		raw, err := net.DialTimeout("tcp", p.addr, dialTimeout)
 		if err != nil {
@@ -112,7 +130,7 @@ func (p *peer) callPersistent(ctx context.Context, op Op, payload []byte) (reply
 			return reply{}, err
 		}
 		conn = newMuxConn(raw)
-		p.conn = conn
+		p.conns[slot] = conn
 	}
 	p.mu.Unlock()
 	return conn.roundTrip(ctx, op, payload)

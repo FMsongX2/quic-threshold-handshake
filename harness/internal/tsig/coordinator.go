@@ -42,6 +42,10 @@ const (
 type Options struct {
 	Policy    string
 	Transport string
+	// Conns is the number of persistent connections per signer. Zero means
+	// one. Requests on one connection wait behind a lost packet together;
+	// more connections shrink that group.
+	Conns int
 	// HedgeWidth is the number of signers PolicyHedge engages, from t to n.
 	// Zero means all n.
 	HedgeWidth int
@@ -139,6 +143,12 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 	if opts.Transport == "" {
 		opts.Transport = TransportPersistent
 	}
+	if opts.Conns == 0 {
+		opts.Conns = 1
+	}
+	if opts.Conns < 0 {
+		return nil, errors.New("tsig: negative connection count")
+	}
 	if opts.Policy == PolicyFirst && pub.Scheme != SchemeRSA {
 		return nil, errors.New("tsig: policy first needs the rsa scheme")
 	}
@@ -170,13 +180,16 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 		}
 	}
 	for i, addr := range addrs {
-		c.peers = append(c.peers, &peer{id: i + 1, addr: addr, transport: opts.Transport})
+		c.peers = append(c.peers, &peer{
+			id: i + 1, addr: addr, transport: opts.Transport, conns: make([]*muxConn, opts.Conns),
+		})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
 	defer cancel()
+	// Open every connection and collect at least three RTT samples.
 	for _, p := range c.peers {
-		for range 3 {
+		for range max(3, opts.Conns) {
 			if _, _, err := p.call(ctx, OpPing, nil); err != nil {
 				return nil, fmt.Errorf("tsig: signer %d at %s: %w", p.id, p.addr, err)
 			}
@@ -365,9 +378,12 @@ func (c *Coordinator) fanOut(
 ) ([]callResult, error) {
 	start := time.Now()
 	results := make(chan callResult, len(peers))
+	slots := make(map[*peer]int, len(peers))
 	for _, p := range peers {
+		slot := p.pick()
+		slots[p] = slot
 		go func() {
-			r, elapsed, err := p.call(ctx, op, payload(p))
+			r, elapsed, err := p.callOn(ctx, slot, op, payload(p))
 			results <- callResult{
 				peer: p, reply: r, err: err,
 				call: Call{Signer: p.id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs},
@@ -377,7 +393,8 @@ func (c *Coordinator) fanOut(
 	// A request or response lost on an otherwise idle TCP connection waits
 	// for a retransmission timer of about 200 ms. Another packet on the same
 	// connection lets TCP notice the gap and retransmit within a round trip,
-	// so a ping goes to every signer still silent after the nudge delay.
+	// so a ping goes, on the connection that carries the request, to every
+	// signer still silent after the nudge delay.
 	var nudge <-chan time.Time
 	if c.opts.NudgeDelayFactor > 0 && c.opts.Transport == TransportPersistent {
 		nudge = time.After(c.stallDelay(peers, c.opts.NudgeDelayFactor))
@@ -394,7 +411,7 @@ func (c *Coordinator) fanOut(
 			trace.Nudged = true
 			for _, p := range peers {
 				if !answered[p] {
-					go p.call(ctx, OpPing, nil)
+					go p.callOn(ctx, slots[p], OpPing, nil)
 				}
 			}
 			continue

@@ -52,6 +52,7 @@ func main() {
 	hedgeBudget := flag.Float64("hedge-budget", 0, "largest share of signatures that may widen after the delay; 0 means no limit")
 	nudgeDelay := flag.Float64("nudge-delay-factor", 0, "ping signers still silent after this multiple of the expected round trip; 0 disables")
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent or per-request")
+	conns := flag.Int("signer-conns", 1, "persistent connections per signer")
 	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
 	tracePath := flag.String("trace-out", "", "JSON lines file for per-signature traces")
 	flag.Parse()
@@ -70,7 +71,7 @@ func main() {
 	} else {
 		cert = thresholdCertificate(*certPath, *publicPath, *signers, tsig.Options{
 			Policy: *policy, HedgeWidth: *hedgeWidth, HedgeDelayFactor: *hedgeDelay, HedgeBudget: *hedgeBudget,
-			NudgeDelayFactor: *nudgeDelay, Transport: *transport, Precompute: *precompute,
+			NudgeDelayFactor: *nudgeDelay, Transport: *transport, Conns: *conns, Precompute: *precompute,
 			OnTrace: traceWriter(*tracePath),
 		})
 	}
