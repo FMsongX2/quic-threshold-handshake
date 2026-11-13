@@ -97,6 +97,7 @@ def summarize(cell: Path) -> dict:
         row["handshakes_ok"] = len(ok)
         row["t_hs_p50"] = round(percentile(ok, 50), 3) if ok else ""
         row["t_hs_p95"] = round(percentile(ok, 95), 3) if ok else ""
+        row["t_hs_p99"] = round(percentile(ok, 99), 3) if ok else ""
         if ok and parts:
             row["t_hs_minus_d_sign_p50"] = round(row["t_hs_p50"] - row["d_sign_p50"], 3)
     return row

@@ -73,15 +73,6 @@ library 선정은 다음과 같다.
 - threshold RSA에 first 정책(전체에 요청, 먼저 온 t개 사용)을 쓰면 같은 loss에서 800회 중 1회만 늦어졌다. FROST는 share가 signer 집합에 묶여 이 정책을 쓸 수 없다. FROST에서 같은 효과를 내는 방법을 Phase 3의 후보로 둔다.
 - 이동 평균으로 가장 빠른 signer를 고르는 fastest 정책은 loss가 있을 때 먼 signer에 머무는 경우가 있었다. 재전송으로 늦어진 응답 하나가 평균을 크게 올리고, 선택되지 않은 signer의 평균은 갱신되지 않기 때문이다. 이 정책은 실험용 구현이므로 결과를 "가장 빠른 signer를 고르는 정책 일반"의 성능으로 읽지 않는다.
 
-### 남은 일
-
-- threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
-- coordinator와 signer 사이 연결에 TLS를 넣지 않았다.
-- s2n-quic 서명 지연 서버, 두 번째 client 구현체, RTT_c 1 ms와 100 ms 조건을 측정하지 않았다.
-- aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
-- signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
-- Phase 3의 최적화 문제를 풀지 않았다.
-
 ### Phase 3 준비: FROST hedging
 
 Phase 2에서 FROST는 선택한 signer 전부의 응답을 기다려야 해서 signer 링크의 loss에 약했다. threshold RSA의 first 정책처럼 "먼저 응답한 t개로 서명을 완성"하는 동작을 FROST에서 얻는 방법을 구현했다.
@@ -101,3 +92,32 @@ Phase 2에서 FROST는 선택한 signer 전부의 응답을 기다려야 해서 
 - signer의 RTT 추정을 이동 평균에서 최근 8개 표본의 최솟값으로 바꿨다. Phase 2에서 재전송으로 늦어진 응답 하나가 가까운 signer를 먼 signer 뒤로 밀어내는 문제를 확인했기 때문이다. fastest 정책과 hedge 정책이 이 추정을 쓴다. `results/2026-11-13-phase2-policy`의 fastest 결과는 바꾸기 전 구현(commit 29a4cdf)으로 측정한 것이다.
 - 선택되지 않은 signer의 추정은 여전히 갱신하지 않는다. RTT가 시간에 따라 변하는 조건은 다루지 않았다.
 - 서명 요청의 wire 형식을 commitment 목록 여러 개를 싣는 형식으로 바꿨다. 세션이 하나인 경우도 같은 형식을 쓴다.
+
+### Phase 3 준비: hedging 측정
+
+실행한 측정과 결과의 위치는 다음과 같다. 결과는 [results-phase3-hedging.md](results-phase3-hedging.md)에 정리했다.
+
+| 측정 | 결과 directory | 내용 |
+| --- | --- | --- |
+| 정책 비교 | `results/2026-11-13-phase3-hedge-policy` | FROST 4종과 threshold RSA 2종, 정책 fastest·hedge(3)·hedge(4)·hedge(5)·first, loss {0, 2}%, 조건마다 1,000회 |
+| handshake | `results/2026-11-13-phase3-hedge-handshake` | quic-go 서버, precomputation FROST와 threshold RSA, loss {0, 2}%, 조건마다 300회 |
+| 동시 handshake | `results/2026-11-13-phase3-hedge-conc` | 동시 handshake 100개, FROST 3종, loss 0%, 조건마다 500회 |
+
+확인한 사실과 그에 따른 결정은 다음과 같다.
+
+- hedge는 loss 2%에서 FROST의 p95를 200 ms대에서 20~51 ms로 줄였다. 100 ms 넘게 늦어진 서명의 비율은 "m개 중 손실 없이 응답한 signer가 t개 미만일 확률"과 맞았다. 이 식을 모델의 loss 항으로 쓴다.
+- m = t + 1만으로 느린 서명의 비율이 0.5~0.7%로 줄었다. 폭을 넓히는 이득은 빠르게 줄고 share 계산량은 조합 수만큼 늘어난다.
+- handshake 100개가 동시에 오는 조건에서 hedge는 T_hs 중앙값을 1.2~2.3배로 늘렸다. 보관한 commitment가 모자랐기 때문이다. 폭을 고정하는 정책은 부하가 높을 때 손해이므로, 부하와 loss에 따라 폭을 바꾸는 정책을 다음 후보로 둔다.
+- RTT 추정을 최솟값으로 바꾼 뒤 fastest 정책은 loss 2%에서도 가까운 signer를 유지했다.
+- precomputation hedge에서 약 10.7회(= 64 / 6)마다 서명이 5~6 ms 늦어졌다. coordinator가 commitment를 64개씩 보충하는 주기와 같다. 보충 단위를 줄이거나 보충을 서명 요청과 겹치지 않게 하는 것은 하지 않았다.
+
+### 남은 일
+
+- threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
+- coordinator와 signer 사이 연결에 TLS를 넣지 않았다.
+- s2n-quic 서명 지연 서버, 두 번째 client 구현체, RTT_c 1 ms와 100 ms 조건을 측정하지 않았다.
+- aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
+- signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
+- Phase 3의 최적화 문제를 풀지 않았다.
+- loss가 있으면서 handshake가 몰리는 조건, signer 장애 조건, RTT_s가 변하는 조건에서 hedge를 측정하지 않았다.
+- 부하와 loss에 따라 hedge의 폭을 바꾸는 정책을 구현하지 않았다.

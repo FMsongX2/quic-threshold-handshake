@@ -13,7 +13,8 @@
 | 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256. threshold ECDSA는 아직 구현하지 않았다. |
 | 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. signer 선택 정책 비교에는 (2, 5)도 쓴다. |
 | 서명 | precomputation | 사용, 미사용 |
-| 서명 | signer 선택 정책 | 고정 집합, RTT_s가 가장 짧은 t개, n개 전체에 요청 후 먼저 온 t개(share가 독립인 scheme에 한정) |
+| 서명 | signer 선택 정책 | 고정 집합(fixed), RTT_s가 가장 짧은 t개(fastest), n개 전체에 요청 후 먼저 온 t개(first, share가 독립인 threshold RSA에 한정), 가까운 m개의 모든 t개 조합으로 FROST 세션을 동시에 진행(hedge) |
+| 서명 | hedge의 폭 m | t부터 n까지 |
 | 서명 | signer 간 transport | 유지되는 연결, 요청마다 새 연결 |
 | 네트워크 | RTT_c | 1 ms, 20 ms, 100 ms |
 | 네트워크 | client와 front server 사이 loss | 0%, 1% |
@@ -124,15 +125,16 @@ Phase 2 측정으로 이 모델을 다음과 같이 구체화했다([results-pha
 
 - loss가 없고 요청이 하나씩 올 때 D_sign의 중앙값은 $R \cdot \max_{i \in S} rtt_i$에 scheme별 계산 시간을 더한 값이다. 요청마다 TCP 연결을 새로 맺으면 $R$ 대신 $2R$을 쓴다.
 - signer 집합 $S$의 응답을 모두 기다리는 구성에서, signer 링크의 방향별 loss율이 $p$일 때 서명이 재전송을 기다리게 될 확률은 $1 - (1 - p)^{2R|S|}$로 근사된다. 측정한 재전송 대기는 200 ms 안팎이었다.
+- signer $m$개에 요청하고 그중 $t$개의 응답으로 서명이 완성되는 구성(threshold RSA의 first, FROST의 hedge)에서는 이 확률이 $m$개 중 손실 없이 응답한 signer가 $t$개 미만일 확률로 바뀐다. 한 signer가 손실 없이 응답할 확률은 $(1 - p)^{2}$이다([results-phase3-hedging.md](results-phase3-hedging.md) 3.1절).
 - 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다.
 
 ## 5. 최적화 문제
 
-결정 변수 $x$는 signature scheme, $(t, n)$, signer 배치, signer 선택 정책, precomputation 사용 여부, signer 간 transport의 조합이다. 구현체와 네트워크·시스템 환경은 주어진 조건으로 둔다.
+결정 변수 $x$는 signature scheme, $(t, n)$, signer 배치, signer 선택 정책, hedge의 폭 $m$, precomputation 사용 여부, signer 간 transport의 조합이다. 구현체와 네트워크·시스템 환경은 주어진 조건으로 둔다.
 
 $$\min_{x} \; Q_{p}\left(T_{hs}(x)\right) \quad \text{subject to} \quad t \ge t_{min}, \;\; d(x) \ge d_{min}, \;\; A(x, f) \ge a_{min}, \;\; cost(x) \le B$$
 
-$Q_p$는 T_hs의 $p$ 분위수이며 $p$는 0.5와 0.99 두 값을 쓴다. $d(x)$는 서명에 참여하는 $t$개 signer가 걸친 failure domain의 수다. $A(x, f)$는 signer $f$개가 응답하지 않을 때의 handshake 성공률이다. $cost(x)$는 handshake 하나에 쓰는 CPU 시간과 signer 간 통신량이다.
+$Q_p$는 T_hs의 $p$ 분위수이며 $p$는 0.5와 0.99 두 값을 쓴다. $d(x)$는 서명에 참여하는 $t$개 signer가 걸친 failure domain의 수다. $A(x, f)$는 signer $f$개가 응답하지 않을 때의 handshake 성공률이다. $cost(x)$는 handshake 하나에 쓰는 CPU 시간과 signer 간 통신량이다. hedge에서는 signer가 서명 하나에 계산하는 share 수 $\binom{m-1}{t-1}$과 같은 수의 nonce commitment 소비가 여기에 들어간다.
 
 결정 변수의 조합 수가 수백 개 이하이면 전수 측정한다. 그보다 많으면 4절의 모델로 상위 후보를 추린 뒤 후보만 실측한다. 결과는 $t_{min}$과 $d_{min}$의 수준별로 T_hs p99가 가장 낮은 구성을 표로 정리하고, 보안 수준과 T_hs p99의 Pareto frontier를 그림으로 보고한다.
 

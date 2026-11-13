@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "results/2026-11-13-phase3-hedge-conc",
+    "--configs",
+    "frost:2:5:pre,frost:3:5:pre,frost:3:5",
+    "--policies",
+    "fastest,hedge4,hedge",
+    "--rtts",
+    "50/5/100/1/20",
+    "--conc",
+    "100",
+    "--n",
+    "500",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:431f7da2bb5e1b0172256ed847aff41e6c9d11d43fede8716b947d6075b97994"
+  }
+}
