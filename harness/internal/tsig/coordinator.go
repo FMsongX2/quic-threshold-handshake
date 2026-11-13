@@ -26,6 +26,9 @@ const (
 	// PolicyFirst asks all n signers and uses the first t answers. It needs
 	// shares that do not depend on the signer set, so it is RSA only.
 	PolicyFirst = "first"
+	// PolicyHedge runs a FROST session for every t-subset of the HedgeWidth
+	// nearest signers and uses the first one to finish. FROST only.
+	PolicyHedge = "hedge"
 )
 
 const (
@@ -38,6 +41,9 @@ const (
 type Options struct {
 	Policy    string
 	Transport string
+	// HedgeWidth is the number of signers PolicyHedge engages, from t to n.
+	// Zero means all n.
+	HedgeWidth int
 	// Precompute collects FROST nonce commitments ahead of time, which
 	// leaves one round trip per signature.
 	Precompute bool
@@ -77,6 +83,10 @@ type Trace struct {
 	// PoolMiss reports that a precomputed commitment was not available and
 	// had to be fetched during the signature.
 	PoolMiss bool `json:"pool_miss,omitempty"`
+	// HedgeSessions and HedgeShares count the sessions PolicyHedge started
+	// and the signature shares it asked signers to compute.
+	HedgeSessions int `json:"hedge_sessions,omitempty"`
+	HedgeShares   int `json:"hedge_shares,omitempty"`
 }
 
 // Coordinator turns key shares on remote signers into signatures. It
@@ -107,6 +117,17 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 	}
 	if opts.Policy == PolicyFirst && pub.Scheme != SchemeRSA {
 		return nil, errors.New("tsig: policy first needs the rsa scheme")
+	}
+	if opts.Policy == PolicyHedge {
+		if pub.Scheme != SchemeFrost {
+			return nil, errors.New("tsig: policy hedge needs the frost scheme")
+		}
+		if opts.HedgeWidth == 0 {
+			opts.HedgeWidth = pub.Signers
+		}
+		if opts.HedgeWidth < pub.Threshold || opts.HedgeWidth > pub.Signers {
+			return nil, fmt.Errorf("tsig: hedge width %d outside [%d, %d]", opts.HedgeWidth, pub.Threshold, pub.Signers)
+		}
 	}
 	if opts.Precompute && pub.Scheme != SchemeFrost {
 		return nil, errors.New("tsig: precompute needs the frost scheme")
@@ -244,7 +265,11 @@ func (c *Coordinator) SignTraced(ctx context.Context, input []byte) ([]byte, *Tr
 	case SchemeRSA:
 		signature, err = c.signRSA(ctx, input, trace)
 	case SchemeFrost:
-		signature, err = c.signFrost(ctx, input, trace)
+		if c.opts.Policy == PolicyHedge {
+			signature, err = c.signFrostHedged(ctx, input, trace)
+		} else {
+			signature, err = c.signFrost(ctx, input, trace)
+		}
 	}
 	if err != nil {
 		return nil, nil, err
@@ -268,16 +293,22 @@ func (c *Coordinator) verify(input, signature []byte) error {
 	return nil
 }
 
+// nearest returns the count signers with the lowest RTT estimate.
+func (c *Coordinator) nearest(count int) []*peer {
+	peers := append([]*peer(nil), c.peers...)
+	sort.SliceStable(peers, func(i, j int) bool { return peers[i].estimate() < peers[j].estimate() })
+	return peers[:count]
+}
+
 // choose returns the signers a signature will use, per the policy.
 func (c *Coordinator) choose() []*peer {
-	peers := append([]*peer(nil), c.peers...)
 	switch c.opts.Policy {
 	case PolicyFirst:
-		return peers
+		return c.peers
 	case PolicyFastest:
-		sort.SliceStable(peers, func(i, j int) bool { return peers[i].estimate() < peers[j].estimate() })
+		return c.nearest(c.pub.Threshold)
 	}
-	return peers[:c.pub.Threshold]
+	return c.peers[:c.pub.Threshold]
 }
 
 type callResult struct {
@@ -395,20 +426,42 @@ func (c *Coordinator) signFrost(ctx context.Context, message []byte, trace *Trac
 	}
 	list.Sort()
 
-	request := encodeFrostSign(message, list)
+	request := encodeFrostSign(message, []frost.CommitmentList{list})
 	done, err := c.fanOut(ctx, "sign", peers, len(peers), OpFrostSign, func(*peer) []byte { return request }, trace)
 	if err != nil {
 		return nil, err
 	}
-	shares := make([]*frost.SignatureShare, len(done))
-	for i, result := range done {
+	var shares []*frost.SignatureShare
+	for _, result := range done {
+		received, err := decodeShares(result.reply.payload, 1)
+		if err != nil {
+			return nil, err
+		}
+		shares = append(shares, received...)
+	}
+	return c.aggregateFrost(message, shares, list)
+}
+
+// decodeShares splits a sign response into its count signature shares.
+func decodeShares(payload []byte, count int) ([]*frost.SignatureShare, error) {
+	if len(payload) == 0 || len(payload)%count != 0 {
+		return nil, errors.New("tsig: malformed signature share batch")
+	}
+	size := len(payload) / count
+	shares := make([]*frost.SignatureShare, count)
+	for i := range shares {
 		shares[i] = new(frost.SignatureShare)
-		if err := shares[i].Decode(result.reply.payload); err != nil {
+		if err := shares[i].Decode(payload[i*size : (i+1)*size]); err != nil {
 			return nil, err
 		}
 	}
-	// Shares are not verified one by one; SignTraced verifies the combined
-	// signature, which fails if any share is wrong.
+	return shares, nil
+}
+
+// aggregateFrost combines the shares of one session into an Ed25519
+// signature. Shares are not verified one by one; SignTraced verifies the
+// combined signature, which fails if any share is wrong.
+func (c *Coordinator) aggregateFrost(message []byte, shares []*frost.SignatureShare, list frost.CommitmentList) ([]byte, error) {
 	frostMu.Lock()
 	signature, err := c.frostConf.AggregateSignatures(message, shares, list, false)
 	frostMu.Unlock()

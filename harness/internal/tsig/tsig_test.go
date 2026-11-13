@@ -48,6 +48,9 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 		{SchemeFrost, 3, 5, Options{Policy: PolicyFastest}},
 		{SchemeFrost, 2, 3, Options{Precompute: true}},
 		{SchemeFrost, 2, 3, Options{Transport: TransportPerRequest}},
+		{SchemeFrost, 2, 5, Options{Policy: PolicyHedge}},
+		{SchemeFrost, 3, 5, Options{Policy: PolicyHedge, HedgeWidth: 4, Precompute: true}},
+		{SchemeFrost, 2, 3, Options{Policy: PolicyHedge, Transport: TransportPerRequest}},
 		{SchemeRSA, 2, 3, Options{}},
 		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst}},
 		{SchemeRSA, 2, 3, Options{Policy: PolicyFastest, Transport: TransportPerRequest}},
@@ -123,5 +126,45 @@ func TestRSAFirstPolicySurvivesMissingSigners(t *testing.T) {
 	digest := sha256.Sum256([]byte("message"))
 	if _, _, err := coordinator.SignTraced(context.Background(), digest[:]); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Hedged FROST runs a session per signer subset, so it finishes with the
+// signers that are left when one is unreachable.
+func TestFrostHedgeSurvivesMissingSigner(t *testing.T) {
+	pub, addrs := startSigners(t, SchemeFrost, 2, 3)
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator, err := NewCoordinator(pub, addrs, Options{Policy: PolicyHedge, Transport: TransportPerRequest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator.peers[0].addr = dead.Addr().String()
+	dead.Close()
+	message := []byte("message")
+	signature, trace, err := coordinator.SignTraced(context.Background(), message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ed25519.Verify(coordinator.Public().(ed25519.PublicKey), message, signature) {
+		t.Fatal("Ed25519 signature rejected")
+	}
+	if trace.HedgeSessions != 1 {
+		t.Fatalf("started %d sessions, want the one without the dead signer", trace.HedgeSessions)
+	}
+}
+
+func TestCombinations(t *testing.T) {
+	got := combinations(4, 2)
+	want := [][]int{{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3}}
+	if len(got) != len(want) {
+		t.Fatalf("got %d subsets, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i][0] != want[i][0] || got[i][1] != want[i][1] {
+			t.Fatalf("subset %d is %v, want %v", i, got[i], want[i])
+		}
 	}
 }

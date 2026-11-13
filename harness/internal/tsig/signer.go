@@ -108,15 +108,19 @@ func NewSigner(share *Share) (*Signer, error) {
 				}
 				return out, nil
 			case OpFrostSign:
-				message, list, err := decodeFrostSign(payload)
+				message, lists, err := decodeFrostSign(payload)
 				if err != nil {
 					return nil, err
 				}
-				sigShare, err := signer.Sign(message, list)
-				if err != nil {
-					return nil, err
+				var out []byte
+				for _, list := range lists {
+					sigShare, err := signer.Sign(message, list)
+					if err != nil {
+						return nil, err
+					}
+					out = append(out, sigShare.Encode()...)
 				}
-				return sigShare.Encode(), nil
+				return out, nil
 			}
 			return nil, errUnsupportedOp(op)
 		}}, nil
@@ -128,22 +132,57 @@ func errUnsupportedOp(op Op) error {
 	return fmt.Errorf("tsig: operation %d not supported by this signer", op)
 }
 
-func encodeFrostSign(message []byte, list frost.CommitmentList) []byte {
+// encodeFrostSign builds a sign request: one message and the commitment list
+// of every session the signer takes part in. The response carries one
+// signature share per list, in order.
+func encodeFrostSign(message []byte, lists []frost.CommitmentList) []byte {
 	out := binary.BigEndian.AppendUint16(nil, uint16(len(message)))
 	out = append(out, message...)
-	return append(out, list.Encode()...)
+	out = binary.BigEndian.AppendUint16(out, uint16(len(lists)))
+	for _, list := range lists {
+		encoded := list.Encode()
+		out = binary.BigEndian.AppendUint16(out, uint16(len(encoded)))
+		out = append(out, encoded...)
+	}
+	return out
 }
 
-func decodeFrostSign(payload []byte) ([]byte, frost.CommitmentList, error) {
-	if len(payload) < 2 {
-		return nil, nil, errors.New("tsig: malformed sign request")
+func decodeFrostSign(payload []byte) ([]byte, []frost.CommitmentList, error) {
+	malformed := errors.New("tsig: malformed sign request")
+	next := func() ([]byte, bool) {
+		if len(payload) < 2 {
+			return nil, false
+		}
+		size := int(binary.BigEndian.Uint16(payload))
+		if len(payload) < 2+size {
+			return nil, false
+		}
+		field := payload[2 : 2+size]
+		payload = payload[2+size:]
+		return field, true
 	}
-	size := int(binary.BigEndian.Uint16(payload))
-	if len(payload) < 2+size {
-		return nil, nil, errors.New("tsig: malformed sign request")
+	message, ok := next()
+	if !ok || len(payload) < 2 {
+		return nil, nil, malformed
 	}
-	list, err := frost.DecodeList(payload[2+size:])
-	return payload[2 : 2+size], list, err
+	count := int(binary.BigEndian.Uint16(payload))
+	payload = payload[2:]
+	if count == 0 || count > maxCommitBatch {
+		return nil, nil, malformed
+	}
+	lists := make([]frost.CommitmentList, count)
+	for i := range lists {
+		encoded, ok := next()
+		if !ok {
+			return nil, nil, malformed
+		}
+		list, err := frost.DecodeList(encoded)
+		if err != nil {
+			return nil, nil, err
+		}
+		lists[i] = list
+	}
+	return message, lists, nil
 }
 
 // Serve accepts coordinator connections on ln until ln is closed. Requests on

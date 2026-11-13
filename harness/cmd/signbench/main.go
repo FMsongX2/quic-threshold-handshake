@@ -22,7 +22,8 @@ const ed25519MessageSize = 64 + 33 + 1 + 32
 func main() {
 	publicPath := flag.String("public", "", "public.json written by qth-dealer")
 	signers := flag.String("signers", "", "comma-separated signer addresses in ID order")
-	policy := flag.String("policy", tsig.PolicyFixed, "fixed, fastest or first")
+	policy := flag.String("policy", tsig.PolicyFixed, "fixed, fastest, first or hedge")
+	hedgeWidth := flag.Int("hedge-width", 0, "signers engaged by the hedge policy; 0 means all")
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent or per-request")
 	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
 	n := flag.Int("n", 200, "number of measured signatures")
@@ -36,7 +37,7 @@ func main() {
 		log.Fatal(err)
 	}
 	coordinator, err := tsig.NewCoordinator(pub, strings.Split(*signers, ","), tsig.Options{
-		Policy: *policy, Transport: *transport, Precompute: *precompute,
+		Policy: *policy, HedgeWidth: *hedgeWidth, Transport: *transport, Precompute: *precompute,
 	})
 	if err != nil {
 		log.Fatal(err)

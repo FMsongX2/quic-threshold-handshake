@@ -3,6 +3,7 @@ package tsig
 import (
 	"context"
 	"errors"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -17,7 +18,11 @@ const (
 	TransportPerRequest = "per-request"
 )
 
-const dialTimeout = 5 * time.Second
+const (
+	dialTimeout = 5 * time.Second
+	// rttWindow is the number of recent samples the RTT estimate looks at.
+	rttWindow = 8
+)
 
 // peer is the coordinator's view of one signer.
 type peer struct {
@@ -27,24 +32,30 @@ type peer struct {
 
 	mu   sync.Mutex
 	conn *muxConn
-	// rttNs is a moving average of round-trip time minus signer compute time.
-	rttNs float64
+	// samples holds the last rttWindow values of round-trip time minus
+	// signer compute time, in nanoseconds.
+	samples [rttWindow]float64
+	seen    int
 }
 
+// estimate is the smallest recent sample. A minimum ignores the samples a
+// retransmission or a busy signer inflated; an average would let one such
+// sample push a near signer behind a far one.
 func (p *peer) estimate() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.rttNs
+	lowest := math.Inf(1)
+	for _, sample := range p.samples[:min(p.seen, rttWindow)] {
+		lowest = min(lowest, sample)
+	}
+	return lowest
 }
 
 func (p *peer) observe(sampleNs float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.rttNs == 0 {
-		p.rttNs = sampleNs
-	} else {
-		p.rttNs = 0.8*p.rttNs + 0.2*sampleNs
-	}
+	p.samples[p.seen%rttWindow] = sampleNs
+	p.seen++
 }
 
 // call sends one request and waits for its response. The returned duration

@@ -74,6 +74,10 @@ def summarize(cell: Path) -> dict:
         "network_p50": p("network", 50),
         "local_p50": p("local", 50),
         "model_network_ms": model_network_ms(meta),
+        "hedge_sessions_mean": round(sum(t.get("hedge_sessions", 0) for t in traces) / len(traces), 2) if traces else "",
+        "shares_per_signature_mean": round(
+            sum(t.get("hedge_shares") or len(t["rounds"][-1]["calls"]) for t in traces) / len(traces), 2
+        ) if traces else "",
         "pool_miss_share": round(sum(1 for t in traces if t.get("pool_miss")) / len(traces), 3) if traces else "",
         "used_signers": " ".join(
             f"{signer}:{count}" for signer, count in sorted(

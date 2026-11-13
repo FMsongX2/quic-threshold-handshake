@@ -118,7 +118,10 @@ def remove_all(n: int) -> None:
 
 
 def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
+    """policy is fixed, fastest, first, hedge (all signers) or hedgeN (the N nearest signers)."""
     flags = ["-policy", policy, "-transport", transport]
+    if policy.startswith("hedge"):
+        flags = ["-policy", "hedge", "-hedge-width", policy[len("hedge"):] or "0", "-transport", transport]
     if config["precompute"]:
         flags.append("-precompute")
     return flags
@@ -265,6 +268,8 @@ def main() -> None:
     try:
         for config, policy, transport, rtt_spec, loss in matrix:
             if policy == "first" and config["scheme"] != "rsa":
+                continue
+            if policy.startswith("hedge") and config["scheme"] != "frost":
                 continue
             max_signers = max(max_signers, config["n"])
             run(args, out, config, policy, transport, rtt_spec, loss)
