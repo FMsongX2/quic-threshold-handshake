@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "--out",
+    "results/2026-11-13-pilot-concurrency",
+    "--servers",
+    "quic-go,aioquic,quiche",
+    "--delays",
+    "0,50",
+    "--concs",
+    "1,10,100",
+    "--rtts",
+    "20",
+    "--n",
+    "50",
+    "--waves",
+    "5",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:85d17005111ec9627b576b41ec697cf5858fe0f9bcccb69d405d7fb74336b294",
+    "qth-aioquic": "sha256:15c7249d26a3b7487f16358bb85fef311ae19503cf862a5a29912da59f1ced1e",
+    "qth-quiche": "sha256:8b880c3b4d717498f0b349aba429581bcf4761ce8e1e9b679655e53b08d902eb"
+  }
+}

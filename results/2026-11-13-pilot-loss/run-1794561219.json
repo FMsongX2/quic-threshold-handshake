@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "--out",
+    "results/2026-11-13-pilot-loss",
+    "--servers",
+    "quic-go,aioquic,quiche",
+    "--delays",
+    "0,50,300",
+    "--losses",
+    "5",
+    "--rtts",
+    "20",
+    "--n",
+    "200"
+  ],
+  "images": {
+    "qth-go": "sha256:7b71071894758476804b0528c2a160f6c5d93099ea08247c5d62102363d9a85e",
+    "qth-aioquic": "sha256:f02134930df705b56f4ac7f5a70e3c8ea51fb609062a6aed43062037a8d0fc31",
+    "qth-quiche": "sha256:572adec0a5e67eb7d9ba85a714372fd773386369dff2c573ebe4301a02e1ea53"
+  }
+}

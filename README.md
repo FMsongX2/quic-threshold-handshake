@@ -26,7 +26,29 @@ QUIC handshake에서 서버는 TLS 1.3 CertificateVerify 메시지에 인증서 
 | [docs/problem-definition.md](docs/problem-definition.md) | 배경, 시스템 모델, 위협 모델, signature scheme 제약, 연구 질문과 가설, 범위, 미결정 사항 |
 | [docs/experiment-design.md](docs/experiment-design.md) | 변인, 테스트베드, 측정 지표, 단계별 실험, 지연 모델과 최적화 문제, 타당성 위협 |
 | [docs/related-work.md](docs/related-work.md) | 선행 연구, TLS 라이브러리와 QUIC 구현체의 서명 hook 조사표, 참고문헌 |
+| [docs/results-phase1-pilot.md](docs/results-phase1-pilot.md) | 서명 지연 주입 pilot 측정의 조건, 결과, 가설 판정 |
+
+## 실행
+
+`harness/`는 서명 hook에 고정 지연을 넣은 QUIC 서버와 handshake 시간을 재는 client를 Docker container로 실행한다. Linux host에 Docker, Python 3.10 이상, OpenSSL이 있어야 하며, container 안에서 `tc netem`을 쓸 수 있어야 한다.
+
+```bash
+# 서명 지연 0·50·200 ms, RTT 20 ms에서 서버 3종을 handshake 50회씩 측정
+python3 harness/run.py --out results/example --servers quic-go,aioquic,quiche --delays 0,50,200 --rtts 20 --n 50
+
+# 조건별 요약을 results/example/summary.csv에 쓰고 표로 출력
+python3 harness/analyze.py results/example
+```
+
+| 경로 | 내용 |
+| --- | --- |
+| `harness/cmd/client` | quic-go client. handshake를 wave 단위로 동시에 시작하고 handshake마다 소요 시간과 qlog를 남긴다. |
+| `harness/cmd/server-quicgo` | quic-go 서버. `crypto.Signer`가 서명 뒤 지정한 시간만큼 반환을 늦춘다. |
+| `harness/servers/aioquic` | aioquic 서버. 인증서 key의 `sign()`이 지정한 시간만큼 event loop를 멈춘다. |
+| `harness/servers/quiche` | Cloudflare quiche 서버. BoringSSL의 비동기 private key method로 지정한 시간 뒤에 서명을 완료한다. |
+| `harness/run.py`, `harness/analyze.py` | 조건 격자 실행과 결과 집계 |
+| `results/` | 측정 결과. qlog 원본은 용량 때문에 저장소에 넣지 않는다. |
 
 ## 진행 상태
 
-주제 구체화 단계다. 실험 코드와 측정 결과는 아직 없다. 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 정리했다.
+Phase 1의 pilot 측정을 마쳤다. 결과와 가설 판정은 [docs/results-phase1-pilot.md](docs/results-phase1-pilot.md)에 있다. threshold signer는 아직 구현하지 않았다. 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 정리했다.

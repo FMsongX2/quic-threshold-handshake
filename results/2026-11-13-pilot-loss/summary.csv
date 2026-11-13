@@ -1,0 +1,10 @@
+server,rtt_ms,loss_pct,sign_delay_ms,concurrency,n,ok,t_hs_p50,t_hs_p95,t_hs_p99,t_hs_max,first_recv_p50,first_rtt_sample_p50,sent_before_first_recv_mean,sent_before_complete_mean,server_initial_packets_mean,pto_share,max_pto_count,packets_lost_mean,first_recv_kinds,loadavg1_before,loadavg1_after,excess_p50
+aioquic,20.0,5.0,0,1,200,200,21.49,45.41,107.45,421.97,20.47,20.46,2.02,3.1,2.0,0.045,1,0.05,initial:ack | initial:ack+crypto | initial:ack+ping,1.89,2.04,0.0
+aioquic,20.0,5.0,50,1,200,200,71.78,133.06,225.31,277.97,20.48,20.48,2.0,4.96,2.06,0.965,1,0.04,initial:ack+crypto | initial:ack+ping,2.04,2.09,0.29
+aioquic,20.0,5.0,300,1,200,200,321.91,384.6,1226.09,1488.81,20.54,20.5,2.09,7.01,2.71,1.0,3,0.07,initial:ack+crypto | initial:ack+ping,2.09,2.18,0.42
+quic-go,20.0,5.0,0,1,200,200,21.06,221.18,221.76,245.37,20.53,20.33,2.09,2.42,1.25,0.08,1,0.07,initial:ack | initial:ack+crypto | initial:crypto,2.08,2.0,0.0
+quic-go,20.0,5.0,50,1,200,200,71.44,271.17,272.74,392.79,70.83,70.56,2.1,2.47,1.24,0.16,2,0.03,initial:ack | initial:ack+crypto,2.0,1.9,0.38
+quic-go,20.0,5.0,300,1,200,200,321.48,521.6,542.59,582.51,320.84,120.36,3.72,4.58,2.99,1.0,2,0.07,initial:ack | initial:ack+crypto,1.9,1.89,0.42
+quiche,20.0,5.0,0,1,200,200,20.93,82.23,102.43,143.26,20.26,20.22,2.0,2.29,2.12,0.055,1,0.02,initial:ack | initial:ack+crypto | initial:crypto,2.18,2.12,0.0
+quiche,20.0,5.0,50,1,200,200,71.24,132.44,271.64,1020.42,20.26,20.22,2.01,3.35,2.19,0.055,3,0.04,initial:ack | initial:ack+crypto | initial:crypto,2.12,1.94,0.31
+quiche,20.0,5.0,300,1,200,200,321.57,383.34,1041.32,1066.61,20.26,20.22,2.02,5.48,4.03,0.18,3,0.06,initial:ack | initial:ack+crypto | initial:crypto,1.94,1.63,0.64

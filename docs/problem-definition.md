@@ -91,6 +91,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 - 가설 H1: 동기형 hook을 쓰는 구현체에서는 서명 호출이 그 구현체의 실행 단위(thread, event loop, task)를 D_sign 동안 점유한다. 실행 단위 하나가 여러 연결을 처리하는 구현체에서는 동시에 진행되는 다른 handshake의 T_hs도 함께 늘어난다.
 - 예측: 동시 handshake 수를 늘리면 비동기형 hook 구현체의 T_hs 중앙값은 유지되고, 실행 단위를 공유하는 동기형 hook 구현체의 T_hs 중앙값은 동시 handshake 수에 비례해 증가한다.
 - 최소 실험: 서명 hook에 고정 지연 50 ms를 넣고 동시 handshake 수 1, 10, 100에서 T_hs 분포를 비교한다.
+- 판정: pilot 측정에서 예측대로였다([results-phase1-pilot.md](results-phase1-pilot.md) 5절).
 
 ### RQ2. 서명 지연의 분해
 
@@ -105,6 +106,7 @@ RFC 9002는 RTT sample이 없을 때 초기 RTT를 333 ms로 둘 것을 권고�
 - 가설 H3: D_sign이 client의 PTO보다 짧으면 T_hs는 서명 지연이 없을 때의 값에 D_sign을 더한 값과 같다. D_sign이 PTO보다 길면 client가 probe packet을 보내고, 구현체에 따라 서버의 재전송이나 추가 대기가 생겨 T_hs의 증가량이 D_sign과 달라진다.
 - 예측: RTT_c가 20 ms일 때, ServerHello나 ACK를 먼저 보내는 구현체에서는 D_sign이 약 60 ms를 넘는 지점부터 client probe packet이 관측된다. 먼저 보내지 않는 구현체에서는 D_sign이 약 1초를 넘는 지점부터 관측된다.
 - 최소 실험: 서명 hook에 넣는 지연을 0 ms에서 1,200 ms까지 바꾸면서 T_hs와 client·server의 재전송 packet 수를 qlog로 기록한다.
+- 판정: pilot 측정에서 T_hs의 증가량은 D_sign이 PTO보다 긴 조건에서도 D_sign과 1 ms 안에서 같았다. probe packet은 관측됐으나 "T_hs의 증가량이 D_sign과 달라진다"는 부분은 기각한다. probe가 시작되는 지연은 client 구현체의 초기 RTT에 따라 달랐다([results-phase1-pilot.md](results-phase1-pilot.md) 4절, 7절).
 
 instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 만든다는 측정 결과가 이미 있다[16]. 인증서 chain이 anti-amplification limit을 넘으면 round trip이 추가된다는 결과도 있다[15]. 이 연구는 두 효과가 서명 지연과 겹칠 때의 동작을 본다.
 
@@ -136,6 +138,5 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | --- | --- | --- |
 | "하위 서버 간 핸드셰이크 지연시간"의 해석 | signer들이 서명에 협력하느라 생기는 지연이 client가 관측하는 QUIC handshake 시간에 주는 영향으로 해석했다. coordinator와 signer 사이 연결을 맺는 비용은 "signer 간 transport" 변인으로 포함했다. | signer끼리 맺는 handshake 자체가 주 측정 대상이라면 T_hs의 정의와 RQ3이 바뀐다. |
 | 산출물의 형태와 마감 | 정해지지 않았다. | 구현체 수와 실험 격자의 크기를 정한다. |
-| 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic으로 시작한다. | RQ1과 RQ3의 비교 폭을 정한다. |
+| 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | 구현이 단순한 FROST와 Shoup threshold RSA를 먼저 하고 threshold ECDSA를 뒤에 둔다. | 공개 WebPKI에 적용 가능한 결과를 언제 얻는지가 달라진다. |
-| Docker 실행 권한 | 실험 계정에 권한이 없다. 권한을 얻기 전에는 host에서 직접 build한 구현체와 user-space UDP relay로 진행한다. | Interop Runner와 `tc netem`을 쓰는 측정을 시작하는 시점을 정한다. |

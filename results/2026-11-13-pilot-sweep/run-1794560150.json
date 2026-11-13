@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "--skip-build",
+    "--out",
+    "results/2026-11-13-pilot-sweep",
+    "--delays",
+    "0,5,20,50,100,150,200,250,300,500,1200",
+    "--rtts",
+    "20",
+    "--n",
+    "50"
+  ],
+  "images": {
+    "qth-go": "sha256:0accf7a0dfcbb7c7d195538961815ab763df092ce4198608b8218107fc668ee9",
+    "qth-aioquic": "sha256:5c274b98399a747763571b7ddbb8ddac1c3cfbf363bdd019cedfebff8db912b3"
+  }
+}

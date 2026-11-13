@@ -8,8 +8,8 @@
 
 | 구분 | 변인 | 초기 수준 |
 | --- | --- | --- |
-| 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic으로 시작한다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. |
-| 구현체 | client QUIC 구현체 | quic-go를 기본 client로 쓴다. 두 번째 client는 Ed25519 검증 지원을 실행으로 확인한 뒤 정한다. |
+| 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic을 쓴다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. quiche, quic-go, aioquic은 서명 지연 서버를 만들어 측정했고 s2n-quic은 아직 만들지 않았다. |
+| 구현체 | client QUIC 구현체 | quic-go v0.65.0을 기본 client로 쓴다. 두 번째 client는 Ed25519 검증 지원을 실행으로 확인한 뒤 정한다. |
 | 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256 |
 | 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. |
 | 서명 | precomputation | 사용, 미사용 |
@@ -27,10 +27,12 @@
 
 | 지표 | 정의 | 측정 위치 |
 | --- | --- | --- |
-| T_hs | client가 첫 Initial packet을 보낸 시각부터 client 쪽 handshake가 complete 상태가 된 시각까지의 시간 | client qlog |
+| T_hs | client가 연결을 시작한 시각부터 client 쪽 handshake가 complete 상태가 된 시각까지의 시간 | client의 연결 함수 호출 전후 시각. qlog의 첫 packet 송신 시각과 handshake complete 시각으로 대조한다. |
 | D_sign | front server가 서명을 요청한 시각부터 완성된 서명을 받은 시각까지의 시간 | front server의 서명 hook |
 | D_sign 분해 | 요청 대기 시간, round별 왕복 시간, signer 계산 시간, share 결합 시간 | coordinator와 signer의 timestamp |
-| 재전송 packet 수 | handshake가 complete 상태가 되기 전에 client와 서버가 보낸 probe·재전송 packet의 수 | 양쪽 qlog, pcap |
+| probe packet 수 | handshake가 complete 상태가 되기 전에 client가 보낸 packet 수에서 서명 지연이 없을 때의 값을 뺀 수 | client qlog |
+| client의 첫 RTT sample | client가 handshake에서 처음 얻은 RTT sample. 서버가 서명 전에 응답하지 않으면 서명 지연이 더해진다. | client qlog |
+| handshake 처리율 | 서버가 T_hs의 증가 없이 지속할 수 있는 초당 handshake 수 | client |
 | handshake 성공률 | 시도한 handshake 중 제한 시간 안에 complete 상태가 된 비율 | client |
 | 서버 CPU 시간 | handshake 하나에 front server와 signer가 쓴 CPU 시간의 합 | process 통계 |
 | signer 간 통신량 | 서명 하나에 coordinator와 signer가 주고받은 메시지 수와 byte 수 | signer 서비스 |
@@ -46,23 +48,21 @@ T_hs와 D_sign은 중앙값, p95, p99로 보고한다.
 
 ## 2. 테스트베드
 
-실험은 Linux host 1대에서 진행한다. host는 x86-64 CPU 32 core, RAM 121 GB, Ubuntu 26.04이며 다른 사용자와 함께 쓴다. 모든 프로세스와 container가 이 host에서 실행된다.
+실험은 Linux host 1대에서 진행한다. host는 x86-64 CPU 8 core 16 thread(AMD Ryzen 7 9700X), RAM 30 GB, Ubuntu 24.04, kernel 7.0이다. 이 host에는 실험과 무관한 virtual machine과 프로세스가 함께 실행 중이다.
 
-Docker 실행 권한은 아래 Interop Runner와 `tc netem` 구성의 선행 조건이다. 현재 실험 계정에는 이 권한이 없다. 권한을 얻기 전에는 구현체를 host에서 직접 build해 loopback에서 실행하고, client와 front server 사이에 지연과 loss를 넣는 user-space UDP relay를 둔다. 이 구성으로 Phase 0의 실행 확인과 Phase 1 중 RTT_c가 20 ms 이상인 조건을 진행한다. relay의 지연 정밀도는 netem보다 낮으므로 RTT_c 1 ms 조건과 최종 측정은 Docker 권한을 얻은 뒤 Interop Runner 구성에서 수행한다.
-
-client와 front server 구간은 QUIC Interop Runner와 그 기반인 quic-network-simulator를 쓴다[17]. 이 도구는 구현체를 Docker image로 실행하고 그 사이의 링크 조건을 바꾼다. 2026년 11월 기준 Interop Runner에는 QUIC 구현체 18개가 등록돼 있으며, 그중 chrome은 client 전용이고 nginx와 haproxy는 서버 전용이다. 같은 도구로 8개 구현체의 handshake를 비교한 선행 측정이 있다[16].
-
-front server와 signer 구간은 Interop Runner가 다루지 않으므로 별도 Docker network를 만들고 `tc netem`으로 RTT·loss·jitter를 준다. signer마다 다른 RTT_s를 주기 위해 signer container마다 qdisc를 따로 둔다.
+client, front server, signer는 각각 Docker container로 실행하고 실험 전용 bridge network에 연결한다. 링크 조건은 각 container의 network interface에 `tc netem`을 걸어 만든다. 두 container의 송신 방향에 RTT의 절반씩 지연을 주고, loss는 방향마다 같은 비율로 준다. signer마다 다른 RTT_s를 주기 위해 signer container마다 qdisc를 따로 둔다. server container는 CPU 4·5번, client container는 6·7번에 고정한다.
 
 ```mermaid
 flowchart LR
-    C[Client container] -- "RTT_c, loss (simulator)" --> F[Front server container]
+    C[Client container] -- "RTT_c, loss (netem)" --> F[Front server container]
     F -- "RTT_s1 (netem)" --> S1[Signer 1]
     F -- "RTT_s2 (netem)" --> S2[Signer 2]
     F -- "RTT_s3 (netem)" --> S3[Signer n]
 ```
 
-계측은 세 곳에서 한다. client와 서버는 qlog를 남긴다. simulator는 pcap을 남긴다. coordinator와 signer는 요청 수신, 계산 시작, 계산 종료, 응답 송신 시각을 기록한다. 모든 container가 한 host에 있으므로 host clock 하나를 기준으로 삼는다.
+QUIC Interop Runner[17]는 쓰지 않는다. 서명 hook을 바꾼 서버를 직접 build해야 해서 공개된 구현체 image를 그대로 쓸 수 없고, Interop Runner가 요구하는 Wireshark 4.5 이상이 host에 없기 때문이다. 같은 도구로 8개 구현체의 handshake를 비교한 선행 측정[16]과는 링크 emulation 방식이 다르다.
+
+계측은 세 곳에서 한다. client는 handshake마다 소요 시간과 qlog를 남긴다. 서버는 구현체가 지원하면 qlog를 남긴다. coordinator와 signer는 요청 수신, 계산 시작, 계산 종료, 응답 송신 시각을 기록한다. 모든 container가 한 host에 있으므로 host clock 하나를 기준으로 삼는다. 실행 스크립트는 `harness/run.py`, 집계 스크립트는 `harness/analyze.py`다.
 
 ## 3. 단계
 
@@ -70,8 +70,8 @@ flowchart LR
 
 ### Phase 0. 조사
 
-- 완료한 일: 15개 QUIC 구현체의 서명 대기 처리 방식을 source로 조사해 [related-work.md](related-work.md) 5.2절에 정리하고 서버 구현체 4개를 정했다.
-- 남은 일: 서버 구현체 4개에서 서명 hook을 외부 함수로 바꾼다. 서명을 기다리는 동안 각 구현체가 ServerHello와 ACK를 보내는지, client가 Ed25519 인증서를 받아들이는지 qlog로 확인한다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다. 실험 host에서 Docker 실행 권한, `sch_netem` kernel module, Interop Runner가 요구하는 Wireshark 4.5 이상을 확보한다.
+- 완료한 일: 15개 QUIC 구현체의 서명 대기 처리 방식을 source로 조사해 [related-work.md](related-work.md) 5.2절에 정리하고 서버 구현체 4개를 정했다. quiche, quic-go, aioquic에서 서명 hook에 지연을 넣은 handshake가 성공했고, 서명을 기다리는 동안 세 구현체가 보내는 packet을 client qlog로 확인했다([results-phase1-pilot.md](results-phase1-pilot.md)).
+- 남은 일: s2n-quic 서명 지연 서버를 만든다. client가 Ed25519 인증서를 받아들이는지 확인하고 두 번째 client 구현체를 정한다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다.
 - 종료 조건: 서버 구현체 4개와 client 구현체 2개를 정하고, 각 서버 구현체에서 서명 hook을 외부 함수로 바꾼 handshake가 한 번 성공한다.
 
 ### Phase 1. 지연 주입
@@ -80,9 +80,9 @@ threshold signature 구현 없이 RQ1과 RQ3에 답한다. 서명 hook은 local 
 
 - 격자: 주입 지연 {0, 1, 5, 20, 50, 100, 200, 500, 1200} ms × RTT_c {1, 20, 100} ms × loss {0, 1}% × 동시 handshake 수 {1, 10, 100} × 서버 구현체 4개 × client 구현체 2개. 1,200 ms는 RFC 9002의 초기 PTO 약 1초[3]를 넘기기 위한 값이다.
 - 반복: 조건마다 handshake 200회를 측정한다. p99의 신뢰구간이 넓으면 반복 수를 늘린다.
-- 종료 조건: 구현체별로 주입 지연에 대한 T_hs 곡선과 재전송 packet 수 곡선을 얻고, 가설 H1과 H3의 예측이 맞았는지 판정한다.
+- 종료 조건: 구현체별로 주입 지연에 대한 T_hs 곡선과 probe packet 수 곡선을 얻고, 가설 H1과 H3의 예측이 맞았는지 판정한다.
 
-구현체 사이의 차이가 측정 오차 안에 들어오면 "구현체" 변인을 줄이고 Phase 2의 서명 변인에 실험 시간을 쓴다.
+pilot 측정([results-phase1-pilot.md](results-phase1-pilot.md))은 RTT_c 20 ms, quic-go client, 서버 3종에서 수행했다. 단일 handshake의 T_hs는 지연 0~1,200 ms에서 주입 지연만큼만 늘었고, 구현체 사이의 차이는 동시 handshake 조건과 probe packet 수, client의 첫 RTT sample에서 나타났다. 이 결과에 따라 위 격자 전체를 측정하지 않는다. 남은 측정은 세 가지다. RTT_c 1 ms와 100 ms에서 T_hs가 주입 지연만큼만 느는지 확인한다. s2n-quic 서버와 두 번째 client 구현체를 추가한다. 동시 handshake 조건에서 서버별 handshake 처리율을 측정한다.
 
 ### Phase 2. threshold signer
 
@@ -107,7 +107,7 @@ handshake 시간은 세 항으로 나눈다.
 
 $$T_{hs} = T_{base}(I, N_c) + D_{sign} + \Delta(I, D_{sign}, N_c)$$
 
-$I$는 서버와 client 구현체의 조합이고 $N_c$는 client와 front server 사이의 네트워크 조건이다. $T_{base}$는 서명 지연이 0일 때의 handshake 시간이다. $\Delta$는 서명 지연 때문에 생긴 재전송과 대기가 더하는 시간이며, Phase 1에서 구현체별로 측정한다. 가설 H3은 $D_{sign}$이 client의 PTO보다 짧을 때 $\Delta$가 0에 가깝다는 주장이다.
+$I$는 서버와 client 구현체의 조합이고 $N_c$는 client와 front server 사이의 네트워크 조건이다. $T_{base}$는 서명 지연이 0일 때의 handshake 시간이다. $\Delta$는 서명 지연 때문에 생긴 재전송과 대기가 더하는 시간이며, Phase 1에서 구현체별로 측정한다. 가설 H3은 $D_{sign}$이 client의 PTO보다 짧을 때 $\Delta$가 0에 가깝다는 주장이다. pilot 측정에서 동시 handshake가 1개일 때 $\Delta$의 중앙값은 세 서버 모두 1 ms 미만이었다. 서명을 직렬로 처리하는 서버에서 handshake가 동시에 도착하면 $\Delta$에 앞선 서명들의 대기 시간이 들어간다.
 
 signer 집합 $S$를 먼저 정하는 scheme의 서명 지연은 다음과 같다.
 
@@ -131,10 +131,10 @@ $Q_p$는 T_hs의 $p$ 분위수이며 $p$는 0.5와 0.99 두 값을 쓴다. $d(x)
 
 | 위협 | 대응 |
 | --- | --- |
-| Interop Runner용 Docker image의 기본 설정이 구현체마다 달라 구현체 차이와 설정 차이가 섞인다. | 통제 변인을 image마다 확인해 맞추고, 맞출 수 없는 설정은 결과 표에 구현체별로 적는다. |
+| 서버 프로그램을 구현체마다 따로 만들어 구현체 차이와 프로그램 차이가 섞인다. | 서버 프로그램은 handshake만 수행하는 최소 구성으로 맞추고, 맞출 수 없는 설정은 결과에 구현체별로 적는다. |
 | emulation의 지연·loss 모형이 실제 WAN과 다르다. | 결과의 적용 범위를 emulation 조건으로 한정하고, 장비가 확보되면 대표 구성 하나를 실제 WAN에서 다시 측정한다. |
 | 모든 container가 한 host에 있어 CPU 경쟁이 측정값에 들어간다. | container마다 CPU core를 고정하고, 동시 handshake 실험에서는 부하 생성기를 다른 core에 둔다. |
-| 다른 사용자의 작업이 host의 CPU를 쓰면 측정값이 흔들린다. | 측정 구간마다 host의 load average를 함께 기록하고, 부하가 높았던 구간은 다시 측정한다. |
+| 실험과 무관한 프로세스가 host의 CPU를 쓰면 측정값이 흔들린다. | 측정 구간마다 host의 load average를 함께 기록하고, 부하가 높았던 구간은 다시 측정한다. |
 | 구현체 version이 바뀌면 서명 대기 중 동작이 달라진다. | 측정에 쓴 commit과 image digest를 결과와 함께 기록한다. |
 | p99는 표본 수에 민감하다. | 조건별 반복 수와 bootstrap 신뢰구간을 함께 보고한다. |
 | Ed25519 인증서 결과는 공개 WebPKI에 적용되지 않는다[19]. | FROST 결과는 사설 PKI 조건으로 표시하고, 공개 WebPKI에 대한 결론은 RSA와 ECDSA 결과로만 내린다. |

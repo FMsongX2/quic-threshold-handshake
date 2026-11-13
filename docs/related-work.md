@@ -67,7 +67,7 @@ neqo와 kwik은 아직 확인하지 않았다.
 - "지원하지 않는다" 또는 "동기"로 분류한 구현체에서도 서명 함수를 원격 호출로 바꿀 수 있다. 이때 서명 함수가 반환할 때까지 그 handshake를 처리하던 실행 단위가 멈춘다.
 - BoringSSL이 기본으로 받아들이는 서명 검증 알고리즘 목록에는 Ed25519가 없다[27]. BoringSSL을 쓰는 client는 검증 알고리즘을 따로 설정하지 않으면 Ed25519 인증서의 서명을 거부하므로, FROST 실험의 client는 Ed25519 검증을 기본으로 지원하는 구현체에서 고른다.
 
-서명을 기다리는 동안 각 구현체가 ServerHello나 ACK를 먼저 보내는지는 source만으로 확정하지 못했다. 이 항목은 실행해서 qlog로 확인한다.
+서명을 기다리는 동안 각 구현체가 ServerHello나 ACK를 먼저 보내는지는 source만으로 확정하지 못했다. quic-go, aioquic, Cloudflare quiche는 실행해서 client qlog로 확인했고 결과는 [results-phase1-pilot.md](results-phase1-pilot.md) 3절에 있다. 나머지 구현체는 확인하지 않았다.
 
 ## 6. 이 연구가 채우려는 공백
 
