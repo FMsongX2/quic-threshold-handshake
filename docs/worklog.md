@@ -81,3 +81,23 @@ library 선정은 다음과 같다.
 - aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
 - signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
 - Phase 3의 최적화 문제를 풀지 않았다.
+
+### Phase 3 준비: FROST hedging
+
+Phase 2에서 FROST는 선택한 signer 전부의 응답을 기다려야 해서 signer 링크의 loss에 약했다. threshold RSA의 first 정책처럼 "먼저 응답한 t개로 서명을 완성"하는 동작을 FROST에서 얻는 방법을 구현했다.
+
+구현에서 내린 결정은 다음과 같다.
+
+- 정책 이름은 hedge다. RTT 추정이 가장 짧은 m개 signer를 고르고, 그 m개에서 뽑을 수 있는 t개 조합마다 FROST 세션을 하나씩 진행해 먼저 끝난 세션의 서명을 쓴다. m은 t부터 n까지 설정할 수 있다.
+- FROST의 signature share는 한 세션의 commitment 목록에 묶이므로 세션 사이에 share를 섞을 수 없다. 세션마다 각 signer의 서로 다른 nonce commitment를 쓴다. 같은 nonce로 두 번 서명하지 않는다.
+- signer 하나가 속한 세션들의 서명 요청은 요청 하나에 묶어 보낸다. 세션마다 따로 보내도 같은 TCP 연결에서는 packet 하나의 손실이 뒤의 요청을 모두 늦추므로 이득이 없다. 묶어 보내면 먼저 응답한 t개 signer가 한 세션을 완성한다.
+- precomputation을 쓰지 않을 때는 commitment 응답이 도착하는 대로, 구성원 전원의 commitment가 모인 세션부터 서명 요청을 보낸다.
+- 비용은 signer가 계산하는 share 수와 소비하는 nonce commitment 수다. signer 하나가 서명 하나에 계산하는 share는 최대 C(m−1, t−1)개다. (t, m) = (2, 5)이면 4개, (3, 5)이면 6개다.
+- 이기지 못한 세션의 nonce는 signer가 서명 요청을 받으면 지워진다. 요청이 signer에 도달하기 전에 취소되면 signer의 memory에 남는다. 이 실험에서는 정리하지 않았다.
+- 보안 근거는 FROST가 동시 세션에서 안전하다는 성질이다. 이 구성의 안전성을 따로 증명하거나 검토받지 않았다.
+
+함께 바꾼 것은 다음과 같다.
+
+- signer의 RTT 추정을 이동 평균에서 최근 8개 표본의 최솟값으로 바꿨다. Phase 2에서 재전송으로 늦어진 응답 하나가 가까운 signer를 먼 signer 뒤로 밀어내는 문제를 확인했기 때문이다. fastest 정책과 hedge 정책이 이 추정을 쓴다. `results/2026-11-13-phase2-policy`의 fastest 결과는 바꾸기 전 구현(commit 29a4cdf)으로 측정한 것이다.
+- 선택되지 않은 signer의 추정은 여전히 갱신하지 않는다. RTT가 시간에 따라 변하는 조건은 다루지 않았다.
+- 서명 요청의 wire 형식을 commitment 목록 여러 개를 싣는 형식으로 바꿨다. 세션이 하나인 경우도 같은 형식을 쓴다.
