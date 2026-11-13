@@ -98,6 +98,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 - 가설 H2: signer 사이의 RTT가 1 ms 미만이면 D_sign은 signer의 계산 시간에 좌우되고, RTT가 수십 ms 이상이면 왕복 횟수 R에 좌우된다.
 - 예측: RTT_s를 0.2 ms에서 50 ms로 올리면 D_sign의 증가량은 R × 50 ms에 가깝다. 같은 조건에서 precomputation을 켠 FROST의 증가량은 켜지 않은 FROST의 절반에 가깝다.
 - 최소 실험: FROST(precomputation 유무)와 Shoup threshold RSA에 대해 RTT_s 두 수준에서 D_sign을 단계별 timestamp로 분해한다.
+- 판정: 예측은 맞았다. RTT_s를 0 ms에서 50 ms로 올렸을 때 D_sign 중앙값의 증가량은 FROST (2, 3)에서 100.1 ms, precomputation을 켠 FROST (2, 3)에서 50.0 ms, threshold RSA (2, 3)에서 50.9 ms였다. 가설의 앞부분은 scheme에 따라 달랐다. RTT_s 0 ms에서 signer 계산이 D_sign 중앙값에서 차지한 비율은 threshold RSA에서 93~95%였고 FROST에서는 절반에 못 미쳤다([results-phase2-signer.md](results-phase2-signer.md) 3절).
 
 ### RQ3. 서명 지연이 handshake 시간으로 전달되는 방식
 

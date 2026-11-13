@@ -1,0 +1,27 @@
+{
+  "scheme": "plain-ed25519",
+  "t": 1,
+  "n": 1,
+  "precompute": false,
+  "policy": "fixed",
+  "transport": "persistent",
+  "signer_rtts_ms": [
+    50.0
+  ],
+  "signer_loss_pct": 0.0,
+  "started_unix": 1794563499.2778895,
+  "loadavg_before": [
+    3.14990234375,
+    3.095703125,
+    3.04443359375
+  ],
+  "client_rtt_ms": 20,
+  "concurrency": 1,
+  "exit_code": 0,
+  "duration_s": 10.370819091796875,
+  "loadavg_after": [
+    2.81884765625,
+    3.02587890625,
+    3.02197265625
+  ]
+}

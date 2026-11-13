@@ -1,0 +1,5 @@
+scheme,t,n,policy,transport,signer_rtts_ms,signer_loss_pct,signatures,d_sign_p50,d_sign_p95,d_sign_p99,d_sign_max,rounds_p50,compute_p50,network_p50,local_p50,pool_miss_share,used_signers,exit_code,loadavg1_before,client_rtt_ms,handshakes,handshakes_ok,t_hs_p50,t_hs_p95,t_hs_minus_d_sign_p50
+frost-pre,2,3,fixed,persistent,5/5/5,0.0,501,11.037,17.205,18.638,25.023,1,0.084,10.359,0.126,0.0,1:501 2:501,0,2.25,20,500,500,35.976,46.239,24.939
+frost,2,3,fixed,persistent,5/5/5,0.0,501,16.394,20.369,21.587,23.366,2,0.153,15.503,0.139,0.0,1:501 2:501,0,2.25,20,500,500,40.192,45.085,23.798
+plain-ed25519,1,1,fixed,persistent,5,0.0,501,5.198,7.843,9.361,9.447,1,0.012,5.149,0.029,0.0,1:501,0,2.19,20,500,500,29.316,33.813,24.118
+rsa,2,3,fixed,persistent,5/5/5,0.0,501,257.865,476.384,496.182,506.499,1,5.04,247.756,0.138,0.0,1:501 2:501,0,2.23,20,500,500,284.293,501.219,26.428

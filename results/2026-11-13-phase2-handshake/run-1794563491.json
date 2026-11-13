@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "results/2026-11-13-phase2-handshake",
+    "--configs",
+    "plain-ed25519:1:1,plain-rsa:1:1,frost:2:3,frost:2:3:pre,rsa:2:3",
+    "--rtts",
+    "5,50",
+    "--n",
+    "50"
+  ],
+  "images": {
+    "qth-go": "sha256:554095ccf7ade1ba9220fbf39f482744b0433019f84eebff9d71e8955e3471e7"
+  }
+}

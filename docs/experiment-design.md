@@ -10,14 +10,14 @@
 | --- | --- | --- |
 | 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic을 쓴다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. quiche, quic-go, aioquic은 서명 지연 서버를 만들어 측정했고 s2n-quic은 아직 만들지 않았다. |
 | 구현체 | client QUIC 구현체 | quic-go v0.65.0을 기본 client로 쓴다. 두 번째 client는 Ed25519 검증 지원을 실행으로 확인한 뒤 정한다. |
-| 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256 |
-| 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. |
+| 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256. threshold ECDSA는 아직 구현하지 않았다. |
+| 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. signer 선택 정책 비교에는 (2, 5)도 쓴다. |
 | 서명 | precomputation | 사용, 미사용 |
 | 서명 | signer 선택 정책 | 고정 집합, RTT_s가 가장 짧은 t개, n개 전체에 요청 후 먼저 온 t개(share가 독립인 scheme에 한정) |
 | 서명 | signer 간 transport | 유지되는 연결, 요청마다 새 연결 |
 | 네트워크 | RTT_c | 1 ms, 20 ms, 100 ms |
 | 네트워크 | client와 front server 사이 loss | 0%, 1% |
-| 네트워크 | RTT_s | 0.2 ms, 5 ms, 50 ms. signer마다 다른 값을 주는 배치도 포함한다. |
+| 네트워크 | RTT_s | 0 ms(netem 없음), 5 ms, 50 ms. signer마다 다른 값을 주는 배치도 포함한다. |
 | 네트워크 | front server와 signer 사이 loss | 0%, 1% |
 | 시스템 | front server의 CPU core 수 | 1, 4 |
 | 시스템 | 동시 handshake 수 | 1, 10, 100 |
@@ -88,8 +88,8 @@ pilot 측정([results-phase1-pilot.md](results-phase1-pilot.md))은 RTT_c 20 ms,
 
 signer 서비스와 coordinator를 만들어 RQ2에 답하고, Phase 1의 결과가 실제 서명 지연에서도 유지되는지 확인한다.
 
-- signature scheme의 순서: FROST(Ed25519), Shoup threshold RSA, threshold ECDSA 순으로 붙인다.
-- 구현 후보: Shoup threshold RSA는 Cloudflare CIRCL의 `tss/rsa`[9], FROST는 RFC 9591을 구현한 공개 library를 쓴다. 각 library의 license와 유지 상태는 이 단계를 시작할 때 확인한다. threshold ECDSA library는 과거 key 추출 취약점이 여러 번 보고됐으므로[21] 보안 감사 이력과 유지 상태를 확인하고 고른다.
+- signature scheme의 순서: FROST(Ed25519), Shoup threshold RSA, threshold ECDSA 순으로 붙인다. FROST와 Shoup threshold RSA는 구현했고 threshold ECDSA는 구현하지 않았다.
+- 구현: signer 서비스와 coordinator는 Go package `harness/internal/tsig`에 있다. FROST는 `github.com/bytemare/frost`, Shoup threshold RSA는 Cloudflare CIRCL의 `tss/rsa`[9]를 쓴다. coordinator와 signer는 TCP로 통신한다. 선정 이유와 구현 결정은 [worklog.md](worklog.md)에 있다. threshold ECDSA library는 과거 key 추출 취약점이 여러 번 보고됐으므로[21] 보안 감사 이력과 유지 상태를 확인하고 고른다.
 - 측정: 1절의 서명·네트워크 변인에 대해 D_sign과 그 분해를 측정하고, 대표 조건에서 T_hs를 함께 측정한다.
 - 종료 조건: scheme별 D_sign 분해 결과를 얻고, 가설 H2의 예측이 맞았는지 판정한다. Phase 1의 T_hs 곡선에 실제 D_sign을 대입한 값과 실측 T_hs의 차이를 보고한다.
 

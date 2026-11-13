@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "bench",
+    "--out",
+    "results/2026-11-13-phase2-dsign",
+    "--configs",
+    "plain-ed25519:1:1,plain-rsa:1:1,frost:2:3,frost:2:3:pre,frost:3:5,frost:3:5:pre,rsa:2:3,rsa:3:5",
+    "--rtts",
+    "0,5,50",
+    "--transports",
+    "persistent,per-request",
+    "--n",
+    "200"
+  ],
+  "images": {
+    "qth-go": "sha256:88d8ec92cdf043a004e3222df0826a890ebeb0101b0fa10dd32dc64fe9f147f9"
+  }
+}
