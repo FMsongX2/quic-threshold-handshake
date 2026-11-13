@@ -123,16 +123,24 @@ func (p *peer) callOnce(ctx context.Context, op Op, payload []byte) (reply, erro
 func (p *peer) callPersistent(ctx context.Context, slot int, op Op, payload []byte) (reply, error) {
 	p.mu.Lock()
 	conn := p.conns[slot]
+	p.mu.Unlock()
 	if conn == nil || conn.broken() {
+		// Dial without the lock so the slots of one signer open in parallel.
 		raw, err := net.DialTimeout("tcp", p.addr, dialTimeout)
 		if err != nil {
-			p.mu.Unlock()
 			return reply{}, err
 		}
-		conn = newMuxConn(raw)
-		p.conns[slot] = conn
+		fresh := newMuxConn(raw)
+		p.mu.Lock()
+		if current := p.conns[slot]; current != nil && !current.broken() {
+			conn = current // another request opened the slot first
+			fresh.fail(errors.New("tsig: duplicate connection"))
+		} else {
+			p.conns[slot] = fresh
+			conn = fresh
+		}
+		p.mu.Unlock()
 	}
-	p.mu.Unlock()
 	return conn.roundTrip(ctx, op, payload)
 }
 

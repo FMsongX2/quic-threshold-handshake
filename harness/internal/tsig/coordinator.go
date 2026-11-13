@@ -187,9 +187,27 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 
 	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
 	defer cancel()
-	// Open every connection and collect at least three RTT samples.
+	// Open every connection in parallel, then take three RTT samples per
+	// signer on connections that are already open.
+	opened := make(chan error, len(c.peers)*opts.Conns)
 	for _, p := range c.peers {
-		for range max(3, opts.Conns) {
+		for slot := range opts.Conns {
+			go func() {
+				_, _, err := p.callOn(ctx, slot, OpPing, nil)
+				if err != nil {
+					err = fmt.Errorf("tsig: signer %d at %s: %w", p.id, p.addr, err)
+				}
+				opened <- err
+			}()
+		}
+	}
+	for range cap(opened) {
+		if err := <-opened; err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range c.peers {
+		for range 3 {
 			if _, _, err := p.call(ctx, OpPing, nil); err != nil {
 				return nil, fmt.Errorf("tsig: signer %d at %s: %w", p.id, p.addr, err)
 			}

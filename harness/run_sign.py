@@ -67,7 +67,7 @@ def ensure_keys(keys_root: Path, config: dict) -> Path:
     return keys
 
 
-def wait_ready(container: str, timeout_s: float = 20) -> None:
+def wait_ready(container: str, timeout_s: float = 60) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         logs = subprocess.run(["docker", "logs", container], text=True, capture_output=True)
