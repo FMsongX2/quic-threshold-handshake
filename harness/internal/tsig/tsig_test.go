@@ -51,6 +51,8 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 		{SchemeFrost, 2, 5, Options{Policy: PolicyHedge}},
 		{SchemeFrost, 3, 5, Options{Policy: PolicyHedge, HedgeWidth: 4, Precompute: true}},
 		{SchemeFrost, 2, 3, Options{Policy: PolicyHedge, Transport: TransportPerRequest}},
+		{SchemeFrost, 2, 5, Options{Policy: PolicyHedge, HedgeDelayFactor: 1.5}},
+		{SchemeFrost, 3, 5, Options{Policy: PolicyHedge, HedgeWidth: 4, HedgeDelayFactor: 1.5, HedgeBudget: 0.2, Precompute: true}},
 		{SchemeRSA, 2, 3, Options{}},
 		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst}},
 		{SchemeRSA, 2, 3, Options{Policy: PolicyFastest, Transport: TransportPerRequest}},
@@ -166,5 +168,37 @@ func TestCombinations(t *testing.T) {
 		if got[i][0] != want[i][0] || got[i][1] != want[i][1] {
 			t.Fatalf("subset %d is %v, want %v", i, got[i], want[i])
 		}
+	}
+}
+
+// A delayed hedge widens as soon as a primary signer fails, without waiting
+// for the delay and without charging an exhausted budget.
+func TestDelayedHedgeWidensOnSignerError(t *testing.T) {
+	pub, addrs := startSigners(t, SchemeFrost, 2, 3)
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator, err := NewCoordinator(pub, addrs, Options{
+		Policy: PolicyHedge, Transport: TransportPerRequest, HedgeDelayFactor: 1e6, HedgeBudget: 0.01,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator.hedgeTokens = 0
+	// Make the nearest signer, which is always in the primary, unreachable.
+	primary := coordinator.nearest(2)
+	primary[0].addr = dead.Addr().String()
+	dead.Close()
+	message := []byte("message")
+	signature, trace, err := coordinator.SignTraced(context.Background(), message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ed25519.Verify(coordinator.Public().(ed25519.PublicKey), message, signature) {
+		t.Fatal("Ed25519 signature rejected")
+	}
+	if !trace.HedgeFired {
+		t.Fatal("hedge did not widen after the primary signer failed")
 	}
 }

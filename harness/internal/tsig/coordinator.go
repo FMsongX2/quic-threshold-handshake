@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/bytemare/frost"
@@ -44,6 +45,13 @@ type Options struct {
 	// HedgeWidth is the number of signers PolicyHedge engages, from t to n.
 	// Zero means all n.
 	HedgeWidth int
+	// HedgeDelayFactor, when positive, makes PolicyHedge start with the t
+	// nearest signers alone and widen to HedgeWidth only if they have not
+	// answered after this multiple of their expected response time.
+	HedgeDelayFactor float64
+	// HedgeBudget, when positive, caps the share of signatures that may
+	// widen after the delay, for example 0.2 for one in five.
+	HedgeBudget float64
 	// Precompute collects FROST nonce commitments ahead of time, which
 	// leaves one round trip per signature.
 	Precompute bool
@@ -87,6 +95,12 @@ type Trace struct {
 	// and the signature shares it asked signers to compute.
 	HedgeSessions int `json:"hedge_sessions,omitempty"`
 	HedgeShares   int `json:"hedge_shares,omitempty"`
+	// HedgeFired reports that a delayed hedge widened beyond the primary
+	// session. HedgeWaitNs is the time the winning session started after
+	// the signature began, when that time was not spent fetching
+	// commitments.
+	HedgeFired  bool  `json:"hedge_fired,omitempty"`
+	HedgeWaitNs int64 `json:"hedge_wait_ns,omitempty"`
 }
 
 // Coordinator turns key shares on remote signers into signatures. It
@@ -101,6 +115,10 @@ type Coordinator struct {
 	pools []chan *frost.Commitment
 	// refills wakes the goroutine that tops up the pool of the same index.
 	refills []chan struct{}
+
+	hedgeMu sync.Mutex
+	// hedgeTokens is the number of hedges HedgeBudget currently allows.
+	hedgeTokens float64
 }
 
 // NewCoordinator connects to the signers at addrs, which are listed in signer
@@ -128,6 +146,9 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 		if opts.HedgeWidth < pub.Threshold || opts.HedgeWidth > pub.Signers {
 			return nil, fmt.Errorf("tsig: hedge width %d outside [%d, %d]", opts.HedgeWidth, pub.Threshold, pub.Signers)
 		}
+		if opts.HedgeDelayFactor < 0 || opts.HedgeBudget < 0 || opts.HedgeBudget > 1 {
+			return nil, errors.New("tsig: hedge delay factor must be >= 0 and hedge budget within [0, 1]")
+		}
 	}
 	if opts.Precompute && pub.Scheme != SchemeFrost {
 		return nil, errors.New("tsig: precompute needs the frost scheme")
@@ -136,7 +157,7 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 	if err != nil {
 		return nil, err
 	}
-	c := &Coordinator{pub: pub, public: public, opts: opts}
+	c := &Coordinator{pub: pub, public: public, opts: opts, hedgeTokens: hedgeBurst}
 	if pub.Scheme == SchemeFrost {
 		if c.frostConf, err = pub.frostConfig(); err != nil {
 			return nil, err

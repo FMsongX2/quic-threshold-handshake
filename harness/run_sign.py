@@ -14,6 +14,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -117,11 +118,23 @@ def remove_all(n: int) -> None:
     docker_quiet("rm", "-f", COORDINATOR_NAME, CLIENT_NAME, "qth-server", *[signer_name(i) for i in range(1, n + 1)])
 
 
+HEDGE = re.compile(r"hedge(\d*)(?:d([\d.]+))?(?:b([\d.]+))?")
+
+
 def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
-    """policy is fixed, fastest, first, hedge (all signers) or hedgeN (the N nearest signers)."""
+    """policy is fixed, fastest, first or hedge[N][dF][bB].
+
+    hedge engages all signers and hedgeN the N nearest. dF delays widening by
+    F times the expected response time of the t nearest signers. bB lets at
+    most the share B of signatures widen.
+    """
     flags = ["-policy", policy, "-transport", transport]
-    if policy.startswith("hedge"):
-        flags = ["-policy", "hedge", "-hedge-width", policy[len("hedge"):] or "0", "-transport", transport]
+    if hedge := HEDGE.fullmatch(policy):
+        width, delay, budget = hedge.groups()
+        flags = [
+            "-policy", "hedge", "-hedge-width", width or "0", "-hedge-delay-factor", delay or "0",
+            "-hedge-budget", budget or "0", "-transport", transport,
+        ]
     if config["precompute"]:
         flags.append("-precompute")
     return flags

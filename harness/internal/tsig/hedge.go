@@ -63,7 +63,49 @@ type hedgeEvent struct {
 	err      error
 }
 
-// signFrostHedged runs one FROST session for every t-subset of the HedgeWidth
+// hedgeSlack is added to the hedge delay to cover signer compute time.
+const hedgeSlack = 2 * time.Millisecond
+
+// hedgeBurst caps the hedges a coordinator may save up under HedgeBudget.
+const hedgeBurst = 10
+
+// hedgeDelay is how long a delayed hedge waits for the primary session:
+// HedgeDelayFactor times the round trips the primary needs to its farthest
+// signer, plus hedgeSlack.
+func (c *Coordinator) hedgeDelay(primary []*peer) time.Duration {
+	var farthest float64
+	for _, p := range primary {
+		farthest = max(farthest, p.estimate())
+	}
+	rounds := 2.0
+	if c.opts.Precompute {
+		rounds = 1
+	}
+	return time.Duration(c.opts.HedgeDelayFactor*rounds*farthest) + hedgeSlack
+}
+
+// earnHedge credits one signature toward the hedge budget.
+func (c *Coordinator) earnHedge() {
+	c.hedgeMu.Lock()
+	defer c.hedgeMu.Unlock()
+	c.hedgeTokens = min(c.hedgeTokens+c.opts.HedgeBudget, hedgeBurst)
+}
+
+// spendHedge reports whether the budget allows one more hedge and charges it.
+func (c *Coordinator) spendHedge() bool {
+	if c.opts.HedgeBudget == 0 {
+		return true
+	}
+	c.hedgeMu.Lock()
+	defer c.hedgeMu.Unlock()
+	if c.hedgeTokens < 1 {
+		return false
+	}
+	c.hedgeTokens--
+	return true
+}
+
+// signFrostHedged runs FROST sessions over the t-subsets of the HedgeWidth
 // nearest signers and returns the signature of the first session to finish.
 //
 // A FROST share is bound to the commitments of one signer set, so shares from
@@ -71,33 +113,42 @@ type hedgeEvent struct {
 // nonce commitment from each of its signers; no nonce signs twice. A signer
 // receives the sessions it belongs to in one request, so the first t signers
 // to answer complete a session.
+//
+// With HedgeDelayFactor zero every session starts at once. Otherwise only the
+// primary session, the t nearest signers, starts; the others follow if the
+// primary has not finished after hedgeDelay and the budget allows, or as soon
+// as a signer reports an error.
 func (c *Coordinator) signFrostHedged(ctx context.Context, message []byte, trace *Trace) ([]byte, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel() // abandons the sessions that did not win
 	start := time.Now()
 	t := c.pub.Threshold
 	members := c.nearest(c.opts.HedgeWidth)
+	// sessions[0] is the primary: members are ordered nearest first.
 	sessions := combinations(len(members), t)
 	perMember := len(sessions) * t / len(members)
+	c.earnHedge()
 
-	events := make(chan hedgeEvent, len(members)+len(sessions)*t)
+	events := make(chan hedgeEvent, 2*len(members)+len(sessions)*t)
 	pending := 0
-
 	commits := make([][]*frost.Commitment, len(members))
 	commitCall := make([]*Call, len(members))
-	commitAt := make([]time.Duration, len(members))
-	for i, p := range members {
+
+	// acquire obtains count more commitments of member i, from the pool when
+	// it has them and from the signer otherwise.
+	acquire := func(i, count int) {
 		if c.opts.Precompute {
-			commits[i] = c.takeCommitments(p, perMember)
+			taken := c.takeCommitments(members[i], count)
+			commits[i] = append(commits[i], taken...)
+			count -= len(taken)
+			trace.PoolMiss = trace.PoolMiss || count > 0
 		}
-		missing := perMember - len(commits[i])
-		if missing == 0 {
-			continue
+		if count == 0 {
+			return
 		}
-		trace.PoolMiss = trace.PoolMiss || c.opts.Precompute
 		pending++
 		go func() {
-			fetched, call, err := c.fetchCommitments(ctx, p, uint16(missing))
+			fetched, call, err := c.fetchCommitments(ctx, members[i], uint16(count))
 			events <- hedgeEvent{member: i, commits: fetched, call: call, err: err}
 		}()
 	}
@@ -107,21 +158,26 @@ func (c *Coordinator) signFrostHedged(ctx context.Context, message []byte, trace
 	lists := make([]frost.CommitmentList, len(sessions))
 	shares := make([][]*frost.SignatureShare, len(sessions))
 	signCalls := make([][]Call, len(sessions))
+	startedAt := make([]time.Duration, len(sessions))
 	started := make([]bool, len(sessions))
+	// open is the number of sessions, counted from the primary, allowed to
+	// start.
+	open := len(sessions)
 
-	// startReady sends the sign requests of every session whose signers all
-	// have their commitments in.
+	// startReady sends the sign requests of every open session whose signers
+	// all have an unused commitment.
 	startReady := func() {
 		batch := make([][]int, len(members))
-		for s, session := range sessions {
+		for s, session := range sessions[:open] {
 			ready := !started[s]
 			for _, i := range session {
-				ready = ready && len(commits[i]) == perMember
+				ready = ready && used[i] < len(commits[i])
 			}
 			if !ready {
 				continue
 			}
 			started[s] = true
+			startedAt[s] = time.Since(start)
 			trace.HedgeSessions++
 			for _, i := range session {
 				lists[s] = append(lists[s], commits[i][used[i]])
@@ -149,20 +205,58 @@ func (c *Coordinator) signFrostHedged(ctx context.Context, message []byte, trace
 			}()
 		}
 	}
+
+	var timer <-chan time.Time
+	if c.opts.HedgeDelayFactor > 0 && len(sessions) > 1 {
+		open = 1
+		for i := range t {
+			acquire(i, 1)
+		}
+		timer = time.After(c.hedgeDelay(members[:t]))
+	} else {
+		for i := range members {
+			acquire(i, perMember)
+		}
+	}
+	// widen opens the sessions beyond the primary.
+	widen := func() {
+		timer = nil
+		trace.HedgeFired = true
+		open = len(sessions)
+		for i := range members {
+			if i < t {
+				acquire(i, perMember-1)
+			} else {
+				acquire(i, perMember)
+			}
+		}
+		startReady()
+	}
 	startReady()
 
 	var failures []error
-	for pending > 0 {
-		ev := <-events
-		pending--
+	for pending > 0 || timer != nil {
+		var ev hedgeEvent
+		select {
+		case ev = <-events:
+			pending--
+		case <-timer:
+			timer = nil
+			if c.spendHedge() {
+				widen()
+			}
+			continue
+		}
 		if ev.err != nil {
 			failures = append(failures, fmt.Errorf("signer %d: %w", members[ev.member].id, ev.err))
+			if timer != nil {
+				widen() // the primary cannot finish; do not wait for the timer
+			}
 			continue
 		}
 		if ev.sessions == nil {
 			commits[ev.member] = append(commits[ev.member], ev.commits...)
 			commitCall[ev.member] = &ev.call
-			commitAt[ev.member] = time.Since(start)
 			startReady()
 			continue
 		}
@@ -176,20 +270,22 @@ func (c *Coordinator) signFrostHedged(ctx context.Context, message []byte, trace
 			if len(shares[s]) < t {
 				continue
 			}
-			var commitWall time.Duration
-			commitRound := Round{Name: "commit"}
+			// Time before the winning session started is the commit round
+			// when its signers were asked for commitments, and hedge wait
+			// otherwise.
+			commitRound := Round{Name: "commit", WallNs: startedAt[s].Nanoseconds()}
 			for _, i := range sessions[s] {
 				if commitCall[i] != nil {
 					commitRound.Calls = append(commitRound.Calls, *commitCall[i])
-					commitWall = max(commitWall, commitAt[i])
 				}
 			}
 			if len(commitRound.Calls) > 0 {
-				commitRound.WallNs = commitWall.Nanoseconds()
 				trace.Rounds = append(trace.Rounds, commitRound)
+			} else {
+				trace.HedgeWaitNs = startedAt[s].Nanoseconds()
 			}
 			trace.Rounds = append(trace.Rounds, Round{
-				Name: "sign", WallNs: (time.Since(start) - commitWall).Nanoseconds(), Calls: signCalls[s],
+				Name: "sign", WallNs: (time.Since(start) - startedAt[s]).Nanoseconds(), Calls: signCalls[s],
 			})
 			return c.aggregateFrost(message, shares[s], lists[s])
 		}

@@ -24,6 +24,8 @@ func main() {
 	signers := flag.String("signers", "", "comma-separated signer addresses in ID order")
 	policy := flag.String("policy", tsig.PolicyFixed, "fixed, fastest, first or hedge")
 	hedgeWidth := flag.Int("hedge-width", 0, "signers engaged by the hedge policy; 0 means all")
+	hedgeDelay := flag.Float64("hedge-delay-factor", 0, "start with t signers and widen after this multiple of their expected response time; 0 widens at once")
+	hedgeBudget := flag.Float64("hedge-budget", 0, "largest share of signatures that may widen after the delay; 0 means no limit")
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent or per-request")
 	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
 	n := flag.Int("n", 200, "number of measured signatures")
@@ -37,7 +39,8 @@ func main() {
 		log.Fatal(err)
 	}
 	coordinator, err := tsig.NewCoordinator(pub, strings.Split(*signers, ","), tsig.Options{
-		Policy: *policy, HedgeWidth: *hedgeWidth, Transport: *transport, Precompute: *precompute,
+		Policy: *policy, HedgeWidth: *hedgeWidth, HedgeDelayFactor: *hedgeDelay, HedgeBudget: *hedgeBudget,
+		Transport: *transport, Precompute: *precompute,
 	})
 	if err != nil {
 		log.Fatal(err)

@@ -32,7 +32,8 @@ def decompose(trace: dict) -> dict:
         "rounds": len(rounds),
         "compute": compute_ns / MS,
         "network": (round_ns - compute_ns) / MS,
-        "local": (trace["total_ns"] - round_ns) / MS,
+        "hedge_wait": trace.get("hedge_wait_ns", 0) / MS,
+        "local": (trace["total_ns"] - round_ns - trace.get("hedge_wait_ns", 0)) / MS,
     }
 
 
@@ -74,6 +75,7 @@ def summarize(cell: Path) -> dict:
         "network_p50": p("network", 50),
         "local_p50": p("local", 50),
         "model_network_ms": model_network_ms(meta),
+        "hedge_fired_share": round(sum(1 for t in traces if t.get("hedge_fired")) / len(traces), 3) if traces else "",
         "hedge_sessions_mean": round(sum(t.get("hedge_sessions", 0) for t in traces) / len(traces), 2) if traces else "",
         "shares_per_signature_mean": round(
             sum(t.get("hedge_shares") or (meta["n"] if meta["policy"] == "first" else meta["t"]) for t in traces)
