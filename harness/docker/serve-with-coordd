@@ -1,0 +1,102 @@
+#!/bin/sh
+# Usage: serve-with-coordd <qth-coordd args...> -- <server command...>
+#
+# Starts qth-coordd, waits until it reports ready, then runs the server. The
+# daemon's output goes to $COORDD_LOG instead of the container output, because
+# run scripts treat the first "ready" in the container logs as the server's.
+# The script exits non-zero as soon as either process exits and stops the
+# other one.
+set -eu
+
+log=${COORDD_LOG:-/tmp/qth-coordd.log}
+
+count=0
+for arg in "$@"; do
+	[ "$arg" = -- ] && break
+	count=$((count + 1))
+done
+if [ "$count" -ge $(($# - 1)) ]; then
+	echo "usage: serve-with-coordd <qth-coordd args...> -- <server command...>" >&2
+	exit 2
+fi
+
+dir=$(mktemp -d)
+# Every child reports "<name> <status>" on this pipe when it finishes, so one
+# blocking read waits for whichever event comes first.
+mkfifo "$dir/events"
+exec 3<>"$dir/events"
+
+# Runs a command in the background and records its PID in $dir/<name>.pid,
+# then reports its exit status on the event pipe.
+supervise() {
+	name=$1
+	shift
+	(
+		"$@" &
+		echo $! >"$dir/$name.pid"
+		status=0
+		wait $! || status=$?
+		echo "$name $status" >&3
+	) &
+}
+
+stop() {
+	trap '' TERM INT
+	for name in coordd server; do
+		if [ -f "$dir/$name.pid" ]; then
+			kill -TERM "$(cat "$dir/$name.pid")" 2>/dev/null || true
+		fi
+	done
+	if [ -n "${watcher-}" ]; then
+		kill "$watcher" 2>/dev/null || true
+	fi
+	rm -rf "$dir"
+}
+trap 'stop; exit 143' TERM INT
+
+run_coordd() {
+	exec qth-coordd "$@" >>"$log" 2>&1
+}
+
+: >"$log"
+# Pass only the arguments before "--" to the daemon.
+coordd_args() {
+	total=$#
+	i=0
+	while [ "$i" -lt "$total" ]; do
+		arg=$1
+		shift
+		[ "$i" -lt "$count" ] && set -- "$@" "$arg"
+		i=$((i + 1))
+	done
+	supervise coordd run_coordd "$@"
+}
+coordd_args "$@"
+(
+	until grep -q ' ready ' "$log"; do
+		sleep 0.05
+	done
+	echo "ready 0" >&3
+) &
+watcher=$!
+
+read -r name status <&3
+if [ "$name" != ready ]; then
+	echo "serve-with-coordd: qth-coordd exited with status $status before it was ready:" >&2
+	cat "$log" >&2
+	stop
+	exit 1
+fi
+
+shift $((count + 1))
+supervise server "$@"
+
+read -r name status <&3
+if [ "$name" = coordd ]; then
+	echo "serve-with-coordd: qth-coordd exited with status $status:" >&2
+	tail -n 20 "$log" >&2
+else
+	echo "serve-with-coordd: server exited with status $status" >&2
+fi
+stop
+exit 1
