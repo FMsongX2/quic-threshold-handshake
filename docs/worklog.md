@@ -301,9 +301,23 @@ region 하나가 통째로 침해되어도 key가 유출되지 않으려면 한 
 - coordinator를 `qth-coordd`라는 daemon으로도 쓸 수 있게 했다. 서버는 TLS가 인증서 key에 서명을 요청하는 message를 daemon에 그대로 보내고 서명을 받는다. protocol은 `harness/internal/coordd`에 있다. daemon은 서버와 같은 container에서 돌며, `serve-with-coordd`가 daemon이 준비된 뒤에 서버를 시작한다.
 - 이 방식으로 aioquic, quiche, s2n-quic 서버에 실제 signer를 붙였다. aioquic은 서명 호출 안에서 daemon의 응답을 기다린다. quiche는 BoringSSL의 비동기 private key method로 요청만 보내고 event loop로 돌아간다.
 - quic-go 서버는 coordinator를 process 안에 두는 기존 방식과 daemon을 거치는 방식을 모두 지원한다. 두 방식을 같은 조건에서 재면 daemon을 거치는 비용이 나온다.
-- s2n-quic 서버는 서명 방식에 따라 TLS library가 다르다. 서명 지연을 주입할 때는 s2n-tls의 비동기 private key 연산을 쓴다. daemon을 쓸 때는 rustls를 쓰고 handshake마다 TLS 처리를 별도 thread에 맡긴다. s2n-tls의 비동기 연산은 서명할 message의 digest만 넘겨주는데, daemon protocol과 Ed25519는 digest가 아닌 message를 필요로 하기 때문이다. s2n-tls는 Ed25519 인증서 key를 지원하지 않는다.
+- s2n-quic 서버는 인증서 key의 종류에 따라 TLS library가 다르다. RSA와 P-256 key에서는 s2n-tls의 비동기 private key 연산을 쓴다. 이 연산은 서명할 message의 SHA-256 digest만 넘겨주므로, daemon에 digest를 받는 listener를 하나 더 두었다. Ed25519 key는 s2n-tls가 지원하지 않아 rustls를 쓰고, handshake마다 TLS 처리를 별도 thread에 맡긴다. s2n-tls 경로는 key exchange로 X25519를, 나머지 서버와 rustls 경로는 X25519MLKEM768을 협상한다. 이 차이는 맞추지 못했다.
+- rustls 경로에서 s2n-quic 서버의 handshake가 client 왕복 한 번만큼 늦었다(loopback에 지연 20 ms를 건 시험에서 57.7 ms, 고친 뒤 27.3 ms). 원인은 s2n-quic 1.92.0의 TLS offload에서 TLS thread가 Handshake flight를 넘길 때 QUIC 쪽을 깨우지 않는 것이었다. 서버가 client의 다음 packet을 받은 뒤에야 flight를 보냈다. offload된 session을 한 번 더 poll하게 감싸서 우회했다.
 - 두 번째 client는 s2n-quic(rustls)으로 만들었다. quic-go client와 같은 option과 기록 형식을 쓴다. ECDSA P-256, Ed25519, RSA 인증서를 모두 검증하는 것을 실행으로 확인했다. 정해진 rate의 부하와 qlog는 quic-go client만 지원한다.
+- 두 번째 client의 처음 구현은 quic-go 서버와 handshake할 때 왕복이 한 번 더 들었다(서명 지연 50 ms에서 109.1 ms, quic-go client는 81.7 ms). client가 X25519 key share만 보내 서버가 HelloRetryRequest로 되물었기 때문이다. quic-go client와 같은 순서의 group과 key share(X25519MLKEM768, X25519)를 보내고 Initial datagram 크기를 1,280 byte로 맞춘 뒤에는 83.4 ms였다. key exchange group을 구현체마다 같게 맞추는 통제가 실제로 결과를 바꾸는 예다.
 - 구현 세 갈래(daemon과 서버 연동, s2n-quic, threshold ECDSA)는 서로 다른 branch에서 동시에 진행하고 loopback에서 확인한 뒤 합쳤다.
+
+### threshold ECDSA 구현
+
+- library는 coinbase/kryptology v1.8.0의 GG20(Gennaro와 Goldfeder의 2020년 threshold ECDSA protocol)을 골랐다. 조건은 P-256 지원, t-of-n 서명, cgo 없이 build되는 것이었다.
+- 검토한 다른 library와 제외한 이유는 다음과 같다. bnb-chain/tss-lib은 secp256k1과 Ed25519만 등록돼 있고 서명 round가 9개다. taurusgroup/multi-party-sig는 secp256k1만 지원한다. getamis/alice는 P-256 시험이 없고 message가 signer 생성 시점에 고정된다. bronlabs/bron-crypto(DKLs23)는 기본 build에 OpenSSL header가 필요하고, v0.1.0에서는 부분 서명을 직렬화할 수 없어 coordinator가 결합하지 못했다. coinbase/cb-mpc는 C++ library다.
+- kryptology는 2022년 9월 이후 갱신이 없는 archive 상태다. library의 보안 문서는 Alpha-Rays 공격에 대한 수정이 들어갔다고 적고 있으며, GG20 자체는 저자들이 쓰지 말라고 밝힌 protocol이다. 이 구현은 지연 측정용이며 실제 배치의 근거로 쓰지 않는다.
+- key는 dealer가 나눈다. dealer가 signer마다 2,048 bit Paillier key와 range proof parameter를 만든다. (3, 5) key를 만드는 데 약 29초가 걸렸다(개발 장비 기준).
+- signer끼리는 직접 통신하지 않는다. coordinator가 protocol message를 모아서 다시 나누어 주므로 protocol의 round 하나가 coordinator와 signer 사이 요청 round 하나가 된다. precomputation이 없으면 서명 하나에 요청 round가 6개이고, message는 여섯 번째 round에만 들어간다.
+- precomputation을 켜면 앞의 5개 round를 미리 끝낸 presignature를 signer 집합마다 256개 보관하고, 서명할 때는 round 하나만 쓴다. 남은 수가 절반 이하가 되면 8개씩 다시 채운다. 측정 조건 하나의 서명 수를 128개 미만으로 두어 다시 채우는 계산이 측정 구간에 들어오지 않게 했다.
+- kryptology가 마지막 round의 검증 부분을 따로 내보내지 않아, precomputation을 켜도 signer가 서명마다 다른 signer의 proof를 검증한다. 개발 장비의 loopback에서 서명 하나의 signer 계산 시간은 precomputation이 없을 때 (2, 3) 198 ms, (3, 5) 360 ms였고, 켰을 때 13 ms, 26 ms였다.
+- 정책은 fixed와 fastest만 지원한다. first와 hedge는 이 scheme을 거부한다.
+- `internal/tsig`의 단위 시험은 ECDSA key 생성 때문에 3~4분이 걸린다.
 
 ### 측정 대기열
 
@@ -312,9 +326,10 @@ region 하나가 통째로 침해되어도 key가 유출되지 않으려면 한 
 | 순서 | 내용 | script | commit |
 | --- | --- | --- | --- |
 | 1 | batch 1 | `harness/campaigns/batch1.sh` | `afc2b0b` |
-| 2 | 구현체별 실제 signer, client 링크 loss | `harness/campaigns/batch2.sh`의 `impl-signer`, `impl-client-loss` | `c740ff0` |
-| 3 | 세 region 배치의 전수 측정 | `harness/campaigns/phase3.sh` | `c740ff0` |
-| 4 | s2n-quic 서버의 지연 주입 측정, 두 번째 client | `harness/campaigns/batch2.sh`의 `p1-s2n`, `client-s2n` | `c740ff0` |
+| 2 | 구현체별 실제 signer, client 링크 loss | `harness/campaigns/batch2.sh`의 `impl-signer`, `impl-client-loss` | `bd67b9f` |
+| 3 | threshold ECDSA | `harness/campaigns/batch3.sh` | `bd67b9f` |
+| 4 | 세 region 배치의 전수 측정 | `harness/campaigns/phase3.sh` | `bd67b9f` |
+| 5 | s2n-quic 서버의 지연 주입 측정, 두 번째 client | `harness/campaigns/batch2.sh`의 `p1-s2n`, `client-s2n` | `bd67b9f` |
 
 ### 남은 일
 
