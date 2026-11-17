@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-quic-conns/conc100-far",
+    "--configs",
+    "frost:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic,quic2,quic4,quic8,quic16",
+    "--rtts",
+    "50",
+    "--losses",
+    "0,2",
+    "--conc",
+    "100",
+    "--n",
+    "5000",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:ec7ee94a654e019e0c22655962aa3774a2e16d03f553bf262c8cf93fa5689a27"
+  }
+}

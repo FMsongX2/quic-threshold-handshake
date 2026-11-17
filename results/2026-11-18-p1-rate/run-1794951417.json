@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-p1-rate",
+    "--servers",
+    "quic-go,aioquic,quiche",
+    "--delays",
+    "0,5,20",
+    "--rtts",
+    "20",
+    "--concs",
+    "",
+    "--rates",
+    "50,100,200,400,800,1600",
+    "--rate-seconds",
+    "10",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:f388ee115234d9c524f1f78b38364aa59957630eb06cb3da389935d274126ee0",
+    "qth-aioquic": "sha256:ff203bbbcb057a07a4ea6c9d765861311b6ff2b46f7e38b40ece62ef8439830e",
+    "qth-quiche": "sha256:eac94a902e30050b0363f7dfac200e459112c28b085bc8da69826eeac335698f"
+  }
+}

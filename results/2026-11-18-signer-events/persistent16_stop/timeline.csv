@@ -1,0 +1,9 @@
+scheme,t,n,policy,transport,events,rate,before_started,before_ok,before_t_hs_p50,before_t_hs_p95,before_fail_after_p50,0-5s_started,0-5s_ok,0-5s_t_hs_p50,0-5s_t_hs_p95,0-5s_fail_after_p50,5-10s_started,5-10s_ok,5-10s_t_hs_p50,5-10s_t_hs_p95,5-10s_fail_after_p50,after10s_started,after10s_ok,after10s_t_hs_p50,after10s_t_hs_p95,after10s_fail_after_p50
+frost-pre,3,5,fastest,persistent16,15:stop:2,20.0,300,296,41.2,41.6,5021.0,100,0,,,5020.9,100,0,,,5020.9,300,0,,,5020.9
+frost-pre,3,5,fastestn1.5,persistent16,15:stop:2,20.0,300,296,41.2,41.7,5020.8,100,0,,,5020.9,100,0,,,5020.8,300,0,,,5020.9
+frost-pre,3,5,fixed,persistent16,15:stop:2,20.0,300,294,121.7,122.1,5021.0,100,0,,,5020.9,100,0,,,5020.9,300,0,,,5020.9
+frost-pre,3,5,hedge4d1.5b0.2,persistent16,15:stop:2,20.0,300,300,41.2,42.5,,100,26,104.1,107.2,5020.9,100,20,103.7,104.4,5020.8,300,60,104.1,104.7,5020.9
+frost-pre,3,5,hedge,persistent16,15:stop:2,20.0,300,300,42.5,48.8,,100,100,71.8,78.3,,100,100,71.8,78.2,,300,300,71.8,78.2,
+frost-pre,3,5,hedged1.5,persistent16,15:stop:2,20.0,300,300,41.2,41.7,,100,100,104.5,108.0,,100,100,104.4,107.7,,300,300,104.4,107.6,
+rsa,3,5,fastest,persistent16,15:stop:2,20.0,300,295,44.7,45.1,5020.8,100,0,,,5020.9,100,0,,,5020.8,300,0,,,5020.9
+rsa,3,5,first,persistent16,15:stop:2,20.0,300,300,47.8,48.4,,100,100,77.8,78.1,,100,100,77.8,78.1,,300,300,77.8,78.2,

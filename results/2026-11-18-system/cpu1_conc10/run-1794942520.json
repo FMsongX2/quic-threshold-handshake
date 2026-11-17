@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-system/cpu1_conc10",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5,frost:3:5:pre,plain-rsa:1:1,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5",
+    "--n",
+    "1000",
+    "--conc",
+    "10",
+    "--server-cpus",
+    "4",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:7db8482ae3fdc3e5251fd5afaa7d4e9988633304969f4c948b296bf91dae3e09"
+  }
+}

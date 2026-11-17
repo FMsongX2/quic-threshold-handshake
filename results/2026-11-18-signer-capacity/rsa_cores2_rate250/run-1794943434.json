@@ -1,0 +1,28 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-signer-capacity/rsa_cores2_rate250",
+    "--configs",
+    "rsa:2:3",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5",
+    "--rate",
+    "250",
+    "--n",
+    "2500",
+    "--signer-cpus",
+    "2",
+    "--server-cpus",
+    "4,5,12,13",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:65c1504859257aa523a19aae22c64e38e145666bdeac29c5f3543146b88664a6"
+  }
+}

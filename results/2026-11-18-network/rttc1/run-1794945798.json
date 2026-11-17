@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-network/rttc1",
+    "--configs",
+    "plain-ed25519:1:1,frost:2:3,frost:3:5,frost:2:3:pre,frost:3:5:pre,plain-rsa:1:1,rsa:2:3,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "0,5,50",
+    "--n",
+    "200",
+    "--client-rtt",
+    "1"
+  ],
+  "images": {
+    "qth-go": "sha256:95e70f7db528ee514526d4c6c2271e5a7df1abe888d4b7434b4ddfda288cae6c"
+  }
+}

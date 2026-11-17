@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-signer-events/persistent16_stop",
+    "--configs",
+    "frost:3:5:pre",
+    "--policies",
+    "fixed,fastest,fastestn1.5,hedge,hedged1.5,hedge4d1.5b0.2",
+    "--transports",
+    "persistent16",
+    "--rtts",
+    "50/5/100/1/20",
+    "--rate",
+    "20",
+    "--n",
+    "800",
+    "--events",
+    "15:stop:2"
+  ],
+  "images": {
+    "qth-go": "sha256:896a242990e3da871d42763d1d7820c9f20c4d22902a629a03d8a47a8f535945"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-signer-capacity/frost_cores1_rate200",
+    "--configs",
+    "frost:2:3:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5",
+    "--rate",
+    "200",
+    "--n",
+    "2000",
+    "--server-cpus",
+    "4,5,12,13",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:6f692c0ede78a56ad69d12c804b7a165c90befbffced2157ad618622dcf10bb8"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-quic-conns/conc300",
+    "--configs",
+    "frost:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic,quic2,quic3,quic4,quic8",
+    "--rtts",
+    "50/5/100/1/20",
+    "--losses",
+    "0,2",
+    "--conc",
+    "300",
+    "--n",
+    "15000",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:55f317a4acebcea562fbc33946299ee6d3fe0ed88ccab0fe9a95767bf2995512"
+  }
+}

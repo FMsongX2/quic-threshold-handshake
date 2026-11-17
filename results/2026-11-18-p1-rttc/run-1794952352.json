@@ -1,0 +1,19 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-p1-rttc",
+    "--servers",
+    "quic-go,aioquic,quiche",
+    "--delays",
+    "0,1,5,20,50,100,200,500,1200",
+    "--rtts",
+    "1,100",
+    "--n",
+    "100"
+  ],
+  "images": {
+    "qth-go": "sha256:3b36fae6f0b6f3c95983040d28982538edca946db1cc0ae2185be80f2563b523",
+    "qth-aioquic": "sha256:bd4314629c5c7be9b5e49682ee4d15755b3d66a0e945f2c0154dd9be261f62c7",
+    "qth-quiche": "sha256:30b7ad493039cdac412545e43309082f4574087126e780a3ec39ae000565a791"
+  }
+}

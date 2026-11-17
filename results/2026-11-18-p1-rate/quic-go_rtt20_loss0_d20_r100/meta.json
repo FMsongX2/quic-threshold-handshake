@@ -1,0 +1,24 @@
+{
+  "server": "quic-go",
+  "rtt_ms": 20.0,
+  "loss_pct": 0.0,
+  "sign_delay_ms": 20,
+  "concurrency": 1,
+  "rate": 100.0,
+  "n": 1000,
+  "client_exit_code": 0,
+  "started_unix": 1794951560.799407,
+  "duration_s": 11.05353045463562,
+  "loadavg_before": [
+    3.1025390625,
+    3.00537109375,
+    2.51904296875
+  ],
+  "loadavg_after": [
+    2.9326171875,
+    2.9716796875,
+    2.51318359375
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7,14,15"
+}

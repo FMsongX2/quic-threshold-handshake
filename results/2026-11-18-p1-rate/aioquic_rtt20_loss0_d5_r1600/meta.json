@@ -1,0 +1,24 @@
+{
+  "server": "aioquic",
+  "rtt_ms": 20.0,
+  "loss_pct": 0.0,
+  "sign_delay_ms": 5,
+  "concurrency": 1,
+  "rate": 1600.0,
+  "n": 16000,
+  "client_exit_code": 0,
+  "started_unix": 1794951863.0537376,
+  "duration_s": 41.329437017440796,
+  "loadavg_before": [
+    2.26025390625,
+    2.55126953125,
+    2.45361328125
+  ],
+  "loadavg_after": [
+    2.62109375,
+    2.60009765625,
+    2.47412109375
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7,14,15"
+}

@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-p1-loss",
+    "--servers",
+    "quic-go,aioquic,quiche",
+    "--delays",
+    "0,20,100",
+    "--rtts",
+    "1,20,100",
+    "--losses",
+    "2",
+    "--n",
+    "400"
+  ],
+  "images": {
+    "qth-go": "sha256:e12eac26b5b50a9f8bbf48e44adc91ad2d3921e0b25d4c240eb66aeb3e504bd4",
+    "qth-aioquic": "sha256:3ec0154df6dc101cd74132e31a9c44cd7629d87c0a7b2c5a891dac97f475156a",
+    "qth-quiche": "sha256:b9e8f449ec66c62aac83e42a7cf7cbc9a8ab507f14b4fe0f546c9f8533f77ec4"
+  }
+}

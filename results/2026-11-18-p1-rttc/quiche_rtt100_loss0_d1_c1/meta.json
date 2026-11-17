@@ -1,0 +1,24 @@
+{
+  "server": "quiche",
+  "rtt_ms": 100.0,
+  "loss_pct": 0.0,
+  "sign_delay_ms": 1,
+  "concurrency": 1,
+  "rate": 0.0,
+  "n": 100,
+  "client_exit_code": 0,
+  "started_unix": 1794954115.3820527,
+  "duration_s": 21.412912130355835,
+  "loadavg_before": [
+    1.728515625,
+    1.92626953125,
+    2.04833984375
+  ],
+  "loadavg_after": [
+    1.91943359375,
+    1.96240234375,
+    2.0576171875
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7"
+}

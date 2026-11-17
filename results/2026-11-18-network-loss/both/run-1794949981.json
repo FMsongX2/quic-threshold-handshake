@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-network-loss/both",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5,frost:3:5:pre,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--losses",
+    "1",
+    "--n",
+    "400",
+    "--client-loss",
+    "1"
+  ],
+  "images": {
+    "qth-go": "sha256:8cf9add7041d92bcf5b506a75e64246e6b524287318d06e2428a052bc9f2de36"
+  }
+}

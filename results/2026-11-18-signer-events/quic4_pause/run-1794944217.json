@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-signer-events/quic4_pause",
+    "--configs",
+    "rsa:3:5",
+    "--policies",
+    "fastest,first",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "50/5/100/1/20",
+    "--rate",
+    "20",
+    "--n",
+    "800",
+    "--events",
+    "15:pause:2"
+  ],
+  "images": {
+    "qth-go": "sha256:17a730edf2b8b05ab5922120a2149bd9df7f11138c0e925e439b31fc6fc135e1"
+  }
+}
