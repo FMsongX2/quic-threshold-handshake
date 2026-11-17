@@ -8,24 +8,29 @@
 
 | 구분 | 변인 | 초기 수준 |
 | --- | --- | --- |
-| 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic을 쓴다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. quiche, quic-go, aioquic은 서명 지연 서버를 만들어 측정했고 s2n-quic은 아직 만들지 않았다. |
-| 구현체 | client QUIC 구현체 | quic-go v0.65.0을 기본 client로 쓴다. 두 번째 client는 Ed25519 검증 지원을 실행으로 확인한 뒤 정한다. |
-| 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256. threshold ECDSA는 아직 구현하지 않았다. |
-| 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. signer 선택 정책 비교에는 (2, 5)도 쓴다. |
+| 구현체 | 서버 QUIC 구현체 | 비동기 서명을 지원하는 Cloudflare quiche와 s2n-quic, 동기 서명만 되는 quic-go와 aioquic을 쓴다. 선정 근거는 [related-work.md](related-work.md) 5.2절의 조사표다. 네 구현체 모두 서명 지연 서버를 만들었고 실제 signer를 붙였다. s2n-quic은 인증서 key가 RSA나 P-256이면 s2n-tls를, Ed25519이면 rustls를 쓴다. |
+| 구현체 | client QUIC 구현체 | quic-go v0.65.0을 기본 client로 쓴다. 두 번째 client는 s2n-quic(rustls)이며 Ed25519, ECDSA P-256, RSA 인증서를 검증한다. qlog와 정해진 rate의 부하는 quic-go client만 지원한다. |
+| 서명 | signature scheme | FROST(Ed25519), Shoup threshold RSA-2048, threshold ECDSA P-256(GG20) |
+| 서명 | (t, n) | (1, 1), (2, 3), (3, 5). (1, 1)은 원격 key server 하나를 쓰는 비교 기준이다. signer 선택 정책 비교에는 (2, 5)와 (4, 5)도 쓴다. |
 | 서명 | precomputation | 사용, 미사용 |
-| 서명 | signer 선택 정책 | 고정 집합(fixed), RTT_s가 가장 짧은 t개(fastest), n개 전체에 요청 후 먼저 온 t개(first, share가 독립인 threshold RSA에 한정), 가까운 m개의 모든 t개 조합으로 FROST 세션을 동시에 진행(hedge) |
+| 서명 | signer 선택 정책 | 고정 집합(fixed), RTT_s가 가장 짧은 t개(fastest), n개 전체에 요청 후 먼저 온 t개(first, share가 독립인 threshold RSA에 한정), 가까운 m개의 모든 t개 조합으로 FROST 세션을 동시에 진행(hedge). threshold ECDSA는 fixed와 fastest만 지원한다. |
 | 서명 | hedge의 폭 m | t부터 n까지 |
 | 서명 | hedge 지연 계수와 예산 | 계수 0(처음부터 모든 세션), 1, 1.5, 3. 예산 없음, 0.2 |
 | 서명 | ping nudge | 미사용, 지연 계수 1.5, 3 |
 | 서명 | signer 간 transport | TCP, TLS 1.3을 쓰는 TCP, QUIC. 각각 유지되는 연결과 요청마다 새 연결. QUIC은 0-RTT도 포함한다. |
-| 서명 | signer당 연결 수 | TCP는 1, 4, 16, 64. QUIC은 1, 4, 16 |
+| 서명 | signer당 연결 수 | TCP는 1, 4, 16, 64. QUIC은 1, 2, 3, 4, 8, 16 |
+| 서명 | coordinator의 위치 | 서버 process 안, 서버와 같은 container의 daemon. quic-go는 둘 다, 나머지 서버는 daemon만 지원한다. |
 | 네트워크 | RTT_c | 1 ms, 20 ms, 100 ms |
-| 네트워크 | client와 front server 사이 loss | 0%, 1% |
+| 네트워크 | client와 front server 사이 loss | 0%, 1%, 2% |
 | 네트워크 | RTT_s | 0 ms(netem 없음), 5 ms, 50 ms. signer마다 다른 값을 주는 배치도 포함한다. |
-| 네트워크 | front server와 signer 사이 loss | 0%, 1% |
-| 시스템 | front server의 CPU core 수 | 1, 4 |
-| 시스템 | 동시 handshake 수 | 1, 10, 100 |
-| 시스템 | CPU architecture | x86-64. 다른 architecture는 장비가 확보되면 추가한다. |
+| 네트워크 | front server와 signer 사이 loss | 0%, 1%, 2%, 5% |
+| 네트워크 | RTT_s의 jitter | 없음, RTT_s의 10%, 30%(정규분포의 표준편차) |
+| 시스템 | front server의 CPU 수 | logical CPU 1, 2, 4 |
+| 시스템 | signer의 CPU 수 | 1, 2 |
+| 시스템 | 동시 handshake 수 | 1, 10, 30, 100, 300 |
+| 시스템 | handshake rate | 초당 20~1,600개. 시작 시각이 앞선 handshake의 완료와 무관한 부하다. |
+| 시스템 | signer 장애 | signer 하나를 죽임, 멈춤, RTT_s를 5 ms에서 200 ms로 바꿈 |
+| 시스템 | CPU architecture | x86-64. 다른 architecture는 측정하지 않았다. |
 
 ### 종속 변인
 
@@ -55,7 +60,7 @@ T_hs와 D_sign은 중앙값, p95, p99로 보고한다.
 
 실험은 Linux host 1대에서 진행한다. host는 x86-64 CPU 8 core 16 thread(AMD Ryzen 7 9700X), RAM 30 GB, Ubuntu 24.04, kernel 7.0이다. 이 host에는 실험과 무관한 virtual machine과 프로세스가 함께 실행 중이다.
 
-client, front server, signer는 각각 Docker container로 실행하고 실험 전용 bridge network에 연결한다. 링크 조건은 각 container의 network interface에 `tc netem`을 걸어 만든다. 두 container의 송신 방향에 RTT의 절반씩 지연을 주고, loss는 방향마다 같은 비율로 준다. signer마다 다른 RTT_s를 주기 위해 signer container마다 qdisc를 따로 둔다. server container는 CPU 4·5번, client container는 6·7번에 고정한다.
+client, front server, signer는 각각 Docker container로 실행하고 실험 전용 bridge network에 연결한다. 링크 조건은 각 container의 network interface에 `tc netem`을 걸어 만든다. 두 container의 송신 방향에 RTT의 절반씩 지연을 주고, loss는 방향마다 같은 비율로 준다. signer마다 다른 RTT_s를 주기 위해 signer container마다 qdisc를 따로 둔다. server container는 CPU 4·5번, client container는 6·7번에 고정한다. CPU를 4개 주는 조건에서는 같은 물리 core의 thread인 12·13번과 14·15번을 더한다. signer container는 0~3번, 8번, 10번, 11번 중에서 하나씩 받는다. 9번은 실험과 무관한 process가 계속 쓰고 있어 뺐다.
 
 ```mermaid
 flowchart LR
@@ -76,8 +81,9 @@ QUIC Interop Runner[17]는 쓰지 않는다. 서명 hook을 바꾼 서버를 직
 ### Phase 0. 조사
 
 - 완료한 일: 15개 QUIC 구현체의 서명 대기 처리 방식을 source로 조사해 [related-work.md](related-work.md) 5.2절에 정리하고 서버 구현체 4개를 정했다. quiche, quic-go, aioquic에서 서명 hook에 지연을 넣은 handshake가 성공했고, 서명을 기다리는 동안 세 구현체가 보내는 packet을 client qlog로 확인했다([results-phase1-pilot.md](results-phase1-pilot.md)).
-- 남은 일: s2n-quic 서명 지연 서버를 만든다. client가 Ed25519 인증서를 받아들이는지 확인하고 두 번째 client 구현체를 정한다. threshold signing을 QUIC handshake와 함께 측정한 선행 연구가 있는지 다시 검색한다.
-- 종료 조건: 서버 구현체 4개와 client 구현체 2개를 정하고, 각 서버 구현체에서 서명 hook을 외부 함수로 바꾼 handshake가 한 번 성공한다.
+- 완료한 일(추가): s2n-quic 서명 지연 서버를 만들었다. 두 번째 client를 s2n-quic(rustls)으로 만들고 Ed25519, ECDSA P-256, RSA 인증서의 검증을 실행으로 확인했다. 구현 기록은 [worklog.md](worklog.md)의 2026-11-18 항목에 있다.
+- threshold signing을 QUIC handshake와 함께 측정한 선행 연구를 2026년 11월 18일에 다시 검색했고 찾지 못했다. 검색 결과는 post-quantum 서명과 인증서 크기가 handshake에 주는 영향을 다룬 연구였다.
+- 종료 조건: 서버 구현체 4개와 client 구현체 2개를 정하고, 각 서버 구현체에서 서명 hook을 외부 함수로 바꾼 handshake가 한 번 성공한다. 이 조건을 만족했다.
 
 ### Phase 1. 지연 주입
 
@@ -93,8 +99,8 @@ pilot 측정([results-phase1-pilot.md](results-phase1-pilot.md))은 RTT_c 20 ms,
 
 signer 서비스와 coordinator를 만들어 RQ2에 답하고, Phase 1의 결과가 실제 서명 지연에서도 유지되는지 확인한다.
 
-- signature scheme의 순서: FROST(Ed25519), Shoup threshold RSA, threshold ECDSA 순으로 붙인다. FROST와 Shoup threshold RSA는 구현했고 threshold ECDSA는 구현하지 않았다.
-- 구현: signer 서비스와 coordinator는 Go package `harness/internal/tsig`에 있다. FROST는 `github.com/bytemare/frost`, Shoup threshold RSA는 Cloudflare CIRCL의 `tss/rsa`[9]를 쓴다. coordinator와 signer는 TCP로 통신한다. 선정 이유와 구현 결정은 [worklog.md](worklog.md)에 있다. threshold ECDSA library는 과거 key 추출 취약점이 여러 번 보고됐으므로[21] 보안 감사 이력과 유지 상태를 확인하고 고른다.
+- signature scheme의 순서: FROST(Ed25519), Shoup threshold RSA, threshold ECDSA 순으로 붙였다.
+- 구현: signer 서비스와 coordinator는 Go package `harness/internal/tsig`에 있다. FROST는 `github.com/bytemare/frost`, Shoup threshold RSA는 Cloudflare CIRCL의 `tss/rsa`[9], threshold ECDSA는 coinbase/kryptology의 GG20을 쓴다. coordinator와 signer는 TCP, TLS 1.3, QUIC 중 하나로 통신한다. 선정 이유와 구현 결정은 [worklog.md](worklog.md)에 있다. threshold ECDSA library는 과거 key 추출 취약점이 여러 번 보고됐고[21], 고른 library는 갱신이 멈춘 상태여서 지연 측정에만 쓴다.
 - 측정: 1절의 서명·네트워크 변인에 대해 D_sign과 그 분해를 측정하고, 대표 조건에서 T_hs를 함께 측정한다.
 - 종료 조건: scheme별 D_sign 분해 결과를 얻고, 가설 H2의 예측이 맞았는지 판정한다. Phase 1의 T_hs 곡선에 실제 D_sign을 대입한 값과 실측 T_hs의 차이를 보고한다.
 

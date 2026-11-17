@@ -331,6 +331,25 @@ region 하나가 통째로 침해되어도 key가 유출되지 않으려면 한 
 | 4 | 세 region 배치의 전수 측정 | `harness/campaigns/phase3.sh` | `bd67b9f` |
 | 5 | s2n-quic 서버의 지연 주입 측정, 두 번째 client | `harness/campaigns/batch2.sh`의 `p1-s2n`, `client-s2n` | `bd67b9f` |
 
+### batch 1의 결과
+
+batch 1은 조건 422개를 4시간 9분 동안 측정했고 실패한 실행은 없었다. 결과는 문서 세 개로 나누어 적었다.
+
+- [results-phase1-grid.md](results-phase1-grid.md): 서명 지연을 주입한 측정의 나머지 변인이다. RTT_c 1 ms와 100 ms에서도 T_hs는 주입한 지연만큼만 늘었다. client link의 loss에서는 서버가 client의 Initial을 먼저 확인해 주는지가 꼬리를 정했다. quic-go 서버는 ServerHello가 손실되면 client가 RTT 표본 없이 200 ms를 기다렸다. aioquic의 처리율은 "1 / (지연 + 1.6 ms)"였다.
+- [results-phase2-environment.md](results-phase2-environment.md): 실제 signer를 붙인 handshake의 네트워크와 시스템 변인이다. T_hs 중앙값은 72개 조건 모두에서 "RTT_c + D_sign + 약 1 ms"였다. handshake가 몰리면 signer의 계산이 T_hs를 정했다. threshold RSA signer는 CPU 하나로 초당 약 200개를 처리했다.
+- [results-phase3-robustness.md](results-phase3-robustness.md): QUIC 연결 4개는 동시 handshake 300개, loss 5%, RTT_s 50 ms까지 충분했다. signer 하나가 응답하지 않으면 fixed와 fastest는 모든 handshake가 실패했고 hedge와 first는 전부 성공했다. hedge 예산 0.2는 장애 때 성공률을 21%로 떨어뜨렸다.
+
+예측과 달랐던 것과 그 밖의 기록은 다음과 같다.
+
+- 예측 1(필요한 QUIC 연결 수)은 2~3배 많았다. 요청이 한 순간에 몰린다고 가정한 것이 원인으로 보인다.
+- 예측 3 가운데 "signer의 CPU가 2개이면 포화점이 2배"는 틀렸다. signer들에게 준 logical CPU가 물리 core를 나누어 쓰고 있었다. 물리 core를 나눈 조건은 host에 여유가 없어 측정하지 못했다.
+- 예측 4 가운데 "TCP에서는 곧바로 실패한다"는 틀렸다. 끊긴 것은 바로 알지만 다시 연결하는 시도가 제한 시간 5초를 채운다.
+- 예측 6 가운데 "hedge는 영향을 받지 않는다"는 틀렸다. 세 번째로 가까운 signer가 바뀌므로 T_hs가 30 ms 늘었다.
+- 예측 8은 조건당 400회로는 판정할 수 없었다. 대신 늦어진 handshake의 client qlog를 열어, 꼬리의 원인이 서명 지연이 아니라 client가 RTT 표본을 얻는 시점이라는 것을 확인했다.
+- 예측 9는 식이 맞고 handshake 처리 시간의 값이 틀렸다(4 ms로 잡았고 실제는 약 1.6 ms).
+- rsync로 host의 `results/`를 통째로 가져오면 예전 측정의 압축하지 않은 `*.jsonl`이 함께 온다. 압축한 파일이 이미 있는 것은 지우고 commit했다.
+- threshold signing을 QUIC handshake와 함께 측정한 선행 연구를 web search로 다시 찾았다. 검색어는 "threshold signature TLS 1.3 handshake latency QUIC"과 "threshold signing QUIC handshake latency evaluation FROST threshold ECDSA threshold RSA"다. 나온 것은 post-quantum 서명, 인증서 크기, Keyless SSL에 관한 연구였고 해당하는 연구는 찾지 못했다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
