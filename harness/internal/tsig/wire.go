@@ -1,7 +1,7 @@
 // Package tsig implements the signer service and the coordinator that
 // produce TLS-compatible signatures from key shares held by separate servers.
 //
-// Wire format, over TCP:
+// Wire format, over TCP, TLS or one QUIC stream per request:
 //
 //	frame    = uint32 big-endian body length | body
 //	request  = op(1) | request id(8) | payload
@@ -83,6 +83,8 @@ func parseRequest(body []byte) (Op, uint64, []byte, error) {
 type reply struct {
 	computeNs int64
 	payload   []byte
+	// early reports that the request travelled as QUIC 0-RTT data.
+	early bool
 }
 
 func writeResponse(w io.Writer, id uint64, computeNs int64, payload []byte, failure error) error {

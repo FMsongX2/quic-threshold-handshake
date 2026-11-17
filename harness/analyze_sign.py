@@ -35,14 +35,18 @@ def decompose(trace: dict) -> dict:
     }
 
 
+# Round trips one request costs when its transport opens a connection for it:
+# the TCP handshake, the TLS handshake and the request itself.
+TRIPS_PER_REQUEST = {"per-request": 2, "tls-per-request": 3, "quic-per-request": 2, "quic-0rtt": 1}
+
+
 def model_network_ms(meta: dict) -> float:
     """Network term of the delay model without loss: the number of round trips
     times the largest RTT among the signers the policy selects."""
     rtts = meta["signer_rtts_ms"]
     chosen = rtts[: meta["t"]] if meta["policy"].startswith("fixed") else sorted(rtts)[: meta["t"]]
     rounds = 2 if meta["scheme"] == "frost" and not meta["precompute"] else 1
-    trips_per_round = 2 if meta["transport"] == "per-request" else 1
-    return rounds * trips_per_round * max(chosen)
+    return rounds * TRIPS_PER_REQUEST.get(meta["transport"], 1) * max(chosen)
 
 
 def summarize(cell: Path) -> dict:
@@ -90,6 +94,9 @@ def summarize(cell: Path) -> dict:
         "exit_code": meta["exit_code"],
         "loadavg1_before": round(meta["loadavg_before"][0], 2),
     }
+    if meta["transport"] == "quic-0rtt":
+        calls = [call for t in traces for r in t["rounds"] for call in r["calls"]]
+        row["early_data_share"] = round(sum(1 for call in calls if call.get("early_data")) / len(calls), 3) if calls else ""
     if handshake:
         records = [json.loads(line) for line in read_lines(cell / "client.jsonl")]
         ok = [r["t_hs_ms"] for r in records if not r["warmup"] and r["ok"]]

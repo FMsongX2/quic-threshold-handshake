@@ -1,14 +1,17 @@
 package tsig
 
 import (
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -17,7 +20,12 @@ import (
 	"github.com/bytemare/frost"
 	"github.com/bytemare/secret-sharing/keys"
 	trsa "github.com/cloudflare/circl/tss/rsa"
+	"github.com/quic-go/quic-go"
 )
+
+// maxSignerStreams is the number of requests a coordinator may have in
+// flight on one QUIC connection.
+const maxSignerStreams = 1 << 16
 
 // pssOptions is the padding TLS 1.3 uses for rsa_pss_rsae_sha256.
 var pssOptions = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: crypto.SHA256}
@@ -185,8 +193,50 @@ func decodeFrostSign(payload []byte) ([]byte, []frost.CommitmentList, error) {
 	return message, lists, nil
 }
 
-// Serve accepts coordinator connections on ln until ln is closed. Requests on
-// one connection are handled concurrently and answered in completion order.
+// NewSignerTLS returns the server configuration of the TLS and QUIC
+// transports, with a fresh self-signed Ed25519 certificate.
+func NewSignerTLS() (*tls.Config, error) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: private}},
+		NextProtos:   []string{signerALPN},
+		MinVersion:   tls.VersionTLS13,
+	}, nil
+}
+
+// ListenQUIC listens for coordinators on a UDP address. It accepts 0-RTT
+// data, and lets a coordinator keep maxSignerStreams requests in flight on
+// one connection.
+func ListenQUIC(addr string, conf *tls.Config) (*quic.EarlyListener, error) {
+	return quic.ListenAddrEarly(addr, conf, &quic.Config{Allow0RTT: true, MaxIncomingStreams: maxSignerStreams})
+}
+
+// answer handles one request and reports the time it took.
+func (s *Signer) answer(op Op, payload []byte) (out []byte, computeNs int64, failure error) {
+	start := time.Now()
+	if op != OpPing {
+		out, failure = s.handle(op, payload)
+	}
+	return out, time.Since(start).Nanoseconds(), failure
+}
+
+// Serve accepts coordinator connections on ln, which is a TCP or a TLS
+// listener, until ln is closed. Requests on one connection are handled
+// concurrently and answered in completion order.
 func (s *Signer) Serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
@@ -210,16 +260,49 @@ func (s *Signer) serveConn(conn net.Conn) {
 			return
 		}
 		go func() {
-			start := time.Now()
-			var out []byte
-			var failure error
-			if op != OpPing {
-				out, failure = s.handle(op, payload)
-			}
-			elapsed := time.Since(start).Nanoseconds()
+			out, computeNs, failure := s.answer(op, payload)
 			writeMu.Lock()
 			defer writeMu.Unlock()
-			writeResponse(conn, id, elapsed, out, failure)
+			writeResponse(conn, id, computeNs, out, failure)
 		}()
 	}
+}
+
+// ServeQUIC accepts coordinator connections on ln until ln is closed. Every
+// stream carries one request and its response. Connections are accepted
+// before their handshake completes, so a request sent as 0-RTT data is
+// answered without waiting for it.
+func (s *Signer) ServeQUIC(ln *quic.EarlyListener) error {
+	for {
+		conn, err := ln.Accept(context.Background())
+		if err != nil {
+			return err
+		}
+		go func() {
+			for {
+				stream, err := conn.AcceptStream(context.Background())
+				if err != nil {
+					return
+				}
+				go s.serveStream(stream)
+			}
+		}()
+	}
+}
+
+func (s *Signer) serveStream(stream *quic.Stream) {
+	// The request frame is all this side reads; ending the receive side
+	// without waiting for the coordinator's FIN frees the stream.
+	defer stream.CancelRead(0)
+	defer stream.Close()
+	body, err := readFrame(stream)
+	if err != nil {
+		return
+	}
+	op, id, payload, err := parseRequest(body)
+	if err != nil {
+		return
+	}
+	out, computeNs, failure := s.answer(op, payload)
+	writeResponse(stream, id, computeNs, out, failure)
 }

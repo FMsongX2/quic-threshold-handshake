@@ -26,7 +26,8 @@ SIGNER_NETWORK = "qth-sig"
 SIGNER_SUBNET = "10.89.1.0/24"
 SIGNER_PREFIX = "10.89.1."
 COORDINATOR_IP = "10.89.1.2"
-SIGNER_PORT = 7000
+SIGNER_PORT = 7000  # plain TCP, and QUIC over UDP
+SIGNER_TLS_PORT = 7001
 SIGNER_CPUS = ["0", "1", "2", "3", "8", "9", "10", "11"]
 COORDINATOR_NAME = "qth-coord"
 CLIENT_NAME = "qth-client"
@@ -98,20 +99,22 @@ def device_for(container: str, prefix: str) -> str:
     raise RuntimeError(f"{container} has no address in {prefix}")
 
 
-def start_signers(keys: Path, rtts: list[float], loss: float) -> str:
-    """Starts one signer per RTT entry; returns the coordinator's -signers value."""
+def start_signers(keys: Path, rtts: list[float], loss: float, transport: str) -> str:
+    """Starts one signer per RTT entry; returns the coordinator's -signers value for transport."""
     for i in range(1, len(rtts) + 1):
         sh(
             "docker", "run", "-d", "--name", signer_name(i), "--network", SIGNER_NETWORK, "--ip", signer_ip(i),
             "--cap-add", "NET_ADMIN", "--cpuset-cpus", SIGNER_CPUS[(i - 1) % len(SIGNER_CPUS)],
             "-v", f"{keys}:/keys:ro", CLIENT_IMAGE,
             "qth-signer", "-share", f"/keys/share-{i}.json", "-listen", f":{SIGNER_PORT}",
+            "-tls-listen", f":{SIGNER_TLS_PORT}", "-quic-listen", f":{SIGNER_PORT}",
             capture=True,
         )
     for i, rtt in enumerate(rtts, start=1):
         wait_ready(signer_name(i))
         netem(signer_name(i), "eth0", rtt, loss)
-    return ",".join(f"{signer_ip(i)}:{SIGNER_PORT}" for i in range(1, len(rtts) + 1))
+    port = SIGNER_TLS_PORT if transport.startswith("tls") else SIGNER_PORT
+    return ",".join(f"{signer_ip(i)}:{port}" for i in range(1, len(rtts) + 1))
 
 
 def remove_all(n: int) -> None:
@@ -120,17 +123,19 @@ def remove_all(n: int) -> None:
 
 HEDGE = re.compile(r"hedge(\d*)(?:d([\d.]+))?(?:b([\d.]+))?")
 NUDGE = re.compile(r"(fixed|fastest|first)n([\d.]+)")
+POOLED = re.compile(r"(persistent|tls|quic)(\d*)")
 
 
 def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
     """policy is fixed, fastest or first, optionally followed by nF, or hedge[N][dF][bB].
-    transport is per-request or persistent[K].
+    transport is persistent[K], tls[K] or quic[K], or per-request,
+    tls-per-request, quic-per-request or quic-0rtt.
 
     nF pings the signers still silent after F times the expected round trip.
     hedge engages all signers and hedgeN the N nearest. dF delays widening by
     F times the expected response time of the t nearest signers. bB lets at
-    most the share B of signatures widen. persistentK keeps K connections per
-    signer.
+    most the share B of signatures widen. A transport followed by K keeps K
+    connections per signer.
     """
     flags = ["-policy", policy]
     if nudge := NUDGE.fullmatch(policy):
@@ -141,8 +146,8 @@ def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
             "-policy", "hedge", "-hedge-width", width or "0", "-hedge-delay-factor", delay or "0",
             "-hedge-budget", budget or "0",
         ]
-    if transport.startswith("persistent"):
-        flags += ["-transport", "persistent", "-signer-conns", transport[len("persistent"):] or "1"]
+    if pooled := POOLED.fullmatch(transport):
+        flags += ["-transport", pooled[1], "-signer-conns", pooled[2] or "1"]
     else:
         flags += ["-transport", transport]
     if config["precompute"]:
@@ -180,7 +185,7 @@ def run_bench(args, out: Path, config: dict, policy: str, transport: str, rtt_sp
     remove_all(config["n"])
     meta = base_meta(config, policy, transport, rtts, loss)
     try:
-        signers = start_signers(keys, rtts, loss)
+        signers = start_signers(keys, rtts, loss, transport)
         bench = " ".join([
             "qth-signbench", "-public", "/keys/public.json", "-signers", signers, "-n", str(args.n),
             "-out", "/out/sign.jsonl", *coordinator_flags(config, policy, transport),
@@ -214,7 +219,7 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
     meta.update(client_rtt_ms=args.client_rtt, concurrency=args.conc)
     uid, gid = os.getuid(), os.getgid()
     try:
-        signers = start_signers(keys, rtts, loss)
+        signers = start_signers(keys, rtts, loss, transport)
         # The server needs both networks before it starts, because the
         # coordinator connects to the signers at startup.
         sh(

@@ -40,11 +40,13 @@ const (
 
 // Options configures a Coordinator.
 type Options struct {
-	Policy    string
+	Policy string
+	// Transport is one of the Transport constants. Empty means
+	// TransportPersistent.
 	Transport string
-	// Conns is the number of persistent connections per signer. Zero means
-	// one. Requests on one connection wait behind a lost packet together;
-	// more connections shrink that group.
+	// Conns is the number of connections per signer a persistent transport
+	// keeps. Zero means one. Over TCP, requests on one connection wait
+	// behind a lost packet together; more connections shrink that group.
 	Conns int
 	// HedgeWidth is the number of signers PolicyHedge engages, from t to n.
 	// Zero means all n.
@@ -58,7 +60,7 @@ type Options struct {
 	HedgeBudget float64
 	// NudgeDelayFactor, when positive, makes the fixed, fastest and first
 	// policies ping the signers that have not answered after this multiple
-	// of the expected round trip. Persistent transport only.
+	// of the expected round trip. Persistent transports only.
 	NudgeDelayFactor float64
 	// Precompute collects FROST nonce commitments ahead of time, which
 	// leaves one round trip per signature.
@@ -76,6 +78,8 @@ type Call struct {
 	RTTNs int64 `json:"rtt_ns"`
 	// ComputeNs is the handling time the signer reported.
 	ComputeNs int64 `json:"compute_ns"`
+	// EarlyData reports that the request travelled as QUIC 0-RTT data.
+	EarlyData bool `json:"early_data,omitempty"`
 }
 
 // Round is one set of parallel requests the coordinator waits for.
@@ -180,9 +184,11 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 		}
 	}
 	for i, addr := range addrs {
-		c.peers = append(c.peers, &peer{
-			id: i + 1, addr: addr, transport: opts.Transport, conns: make([]*muxConn, opts.Conns),
-		})
+		p, err := newPeer(i+1, addr, opts.Transport, opts.Conns)
+		if err != nil {
+			return nil, err
+		}
+		c.peers = append(c.peers, p)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
@@ -261,7 +267,7 @@ func (c *Coordinator) keepFilled(p *peer, pool chan *frost.Commitment, wake chan
 
 func (c *Coordinator) fetchCommitments(ctx context.Context, p *peer, count uint16) ([]*frost.Commitment, Call, error) {
 	r, elapsed, err := p.call(ctx, OpFrostCommit, binary.BigEndian.AppendUint16(nil, count))
-	call := Call{Signer: p.id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs}
+	call := p.record(r, elapsed)
 	if err != nil {
 		return nil, call, err
 	}
@@ -402,19 +408,17 @@ func (c *Coordinator) fanOut(
 		slots[p] = slot
 		go func() {
 			r, elapsed, err := p.callOn(ctx, slot, op, payload(p))
-			results <- callResult{
-				peer: p, reply: r, err: err,
-				call: Call{Signer: p.id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs},
-			}
+			results <- callResult{peer: p, reply: r, err: err, call: p.record(r, elapsed)}
 		}()
 	}
 	// A request or response lost on an otherwise idle TCP connection waits
-	// for a retransmission timer of about 200 ms. Another packet on the same
-	// connection lets TCP notice the gap and retransmit within a round trip,
-	// so a ping goes, on the connection that carries the request, to every
+	// for a retransmission timer of about 200 ms, and on an idle QUIC
+	// connection for a probe timeout. Another packet on the same connection
+	// lets the sender notice the gap and retransmit within a round trip, so
+	// a ping goes, on the connection that carries the request, to every
 	// signer still silent after the nudge delay.
 	var nudge <-chan time.Time
-	if c.opts.NudgeDelayFactor > 0 && c.opts.Transport == TransportPersistent {
+	if c.opts.NudgeDelayFactor > 0 && !transportKinds[c.opts.Transport].perRequest {
 		nudge = time.After(c.stallDelay(peers, c.opts.NudgeDelayFactor))
 	}
 	answered := make(map[*peer]bool, len(peers))

@@ -190,10 +190,7 @@ func (c *Coordinator) signFrostHedged(ctx context.Context, message []byte, trace
 			pending++
 			go func() {
 				r, elapsed, err := members[i].call(ctx, OpFrostSign, encodeFrostSign(message, request))
-				events <- hedgeEvent{
-					member: i, sessions: ready, reply: r, err: err,
-					call: Call{Signer: members[i].id, RTTNs: elapsed.Nanoseconds(), ComputeNs: r.computeNs},
-				}
+				events <- hedgeEvent{member: i, sessions: ready, reply: r, err: err, call: members[i].record(r, elapsed)}
 			}()
 		}
 	}

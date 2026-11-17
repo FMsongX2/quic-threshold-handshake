@@ -183,10 +183,50 @@ hedge의 폭을 고정하면 loss가 없고 handshake가 몰릴 때 손해였다
 - coordinator와 signer 사이 transport의 기본 구성을 "signer당 연결 여러 개 + ping nudge"로 정했다.
 - 첫 실행은 연결 64개 조건에서 서버가 준비 시간 20초를 넘겨 중단됐다. coordinator가 연결을 하나씩 순서대로 맺었기 때문이다. 연결을 한꺼번에 맺도록 고치고 준비 대기 시간을 60초로 늘린 뒤 동시 handshake 측정 전체를 다시 했다. 중단된 실행의 결과는 쓰지 않았다.
 
+## 2026-11-17
+
+### signer 연결의 TLS와 QUIC 구현
+
+signer 연결을 여러 개 두는 것은 요청마다 전달 순서를 독립시키는 수단이었다. QUIC은 연결 하나 안에서 stream마다 전달 순서가 독립이므로, signer 연결에 QUIC을 쓰는 transport를 구현해 비교한다. 지금까지의 signer 연결은 암호화가 없는 TCP여서 QUIC과 조건이 다르다. 같은 조건의 비교 대상으로 TLS 1.3을 쓰는 TCP transport도 함께 넣었다.
+
+| transport | 연결 | 요청 하나의 전달 |
+| --- | --- | --- |
+| `persistent` | TCP, 유지 | 연결 하나에 요청 ID로 다중화 |
+| `tls` | TCP + TLS 1.3, 유지 | 위와 같음 |
+| `quic` | QUIC, 유지 | 요청마다 stream 하나 |
+| `per-request` | TCP, 요청마다 새로 | 연결을 맺고 요청 하나를 보낸 뒤 닫음 |
+| `tls-per-request` | TCP + TLS 1.3, 요청마다 새로 | 매번 전체 handshake |
+| `quic-per-request` | QUIC, 요청마다 새로 | 매번 전체 handshake |
+| `quic-0rtt` | QUIC, 요청마다 새로 | session ticket이 있으면 요청을 0-RTT data로 보냄 |
+
+- signer는 TCP, TLS, QUIC을 각각 다른 port에서 함께 받는다. signer는 시작할 때 자체 서명한 Ed25519 인증서를 만들고, coordinator는 인증서의 chain과 이름을 검증하지 않는다. handshake의 서명 검증은 그대로 수행되므로 handshake의 왕복 수와 계산은 검증할 때와 같다. signer와 coordinator의 상호 인증은 구현하지 않았다.
+- QUIC transport의 구현체는 quic-go v0.65.0이다. QUIC에서는 요청과 응답이 각자의 길이를 담고 있어 양쪽 모두 stream의 끝(FIN)을 기다리지 않는다. FIN이 손실돼도 요청이 늦어지지 않게 하기 위해서다.
+- signer는 QUIC 연결을 handshake가 끝나기 전에 받아들인다. 0-RTT로 온 요청에 handshake 완료를 기다리지 않고 응답하기 위해서다.
+- 0-RTT data는 재전송 공격(replay)에 노출된다. FROST 서명 요청은 한 번 쓴 nonce를 signer가 지우므로 다시 보내면 실패하고, threshold RSA의 share는 같은 입력에 같은 값이 나온다. 그 밖의 안전성은 검토하지 않았다.
+- 기록에 요청별로 0-RTT 사용 여부를 남긴다. 0-RTT가 조용히 전체 handshake로 바뀌어도 서명은 성공하므로, 측정값이 어느 경우의 것인지 구분하기 위해서다.
+- 단위 시험에 두 가지를 넣었다. 시작할 때 맺은 QUIC 연결이 요청이 끝난 뒤에도 그대로 쓰이는지, ticket을 받은 뒤의 요청이 실제로 0-RTT로 가는지다.
+
+### 측정 전의 예측
+
+측정 조건은 [results-phase3-connections.md](results-phase3-connections.md)와 같다. signer의 RTT_s는 번호 순서대로 50, 5, 100, 1, 20 ms이고, 지연은 signer의 송신 방향에 건다.
+
+유지되는 QUIC 연결 하나에 관한 예측은 다음과 같다.
+
+1. handshake 100개가 동시에 시작되고 loss가 2%일 때, T_hs 중앙값은 loss가 없을 때와 같다. TCP 연결 16개 이상에서 본 결과와 같은 이유다.
+2. nudge가 없어도 꼬리가 약 200 ms가 아니라 probe timeout 수준이다. quic-go의 probe timeout은 "smoothed RTT + max(RTT 편차의 4배, 1 ms) + 상대의 max_ack_delay(25 ms)"다. 손실이 난 signer의 RTT_s를 r이라 하면 그 요청의 응답 시간은 약 2r + 26 ms다. 요청을 하나씩 보낼 때 가장 가까운 signer 셋(1, 5, 20 ms)에서는 28, 36, 66 ms가 된다.
+3. 따라서 요청을 하나씩 보내고 loss가 2%일 때 D_sign의 p95는 (2, 5)에서 30~40 ms로 TCP + nudge(12.7 ms)보다 길고, (3, 5)에서도 30~40 ms로 TCP + nudge(43.9 ms)보다 조금 짧다. p99는 (3, 5)에서 약 66 ms다.
+4. QUIC에 nudge를 더하면 (2, 5)에서는 TCP + nudge와 같은 수준(p95 20 ms 이하)으로 줄어든다. (3, 5)에서는 달라지지 않는다. nudge의 지연 시간(32 ms)이 가까운 signer의 probe timeout보다 늦기 때문이다.
+5. loss가 없고 handshake가 몰릴 때는 QUIC이 TCP보다 느릴 수 있다. signer는 CPU 하나에서 QUIC packet을 사용자 영역에서 처리한다. 크기는 예측하지 않는다.
+
+요청마다 연결을 새로 맺는 transport에 관한 예측은 다음과 같다.
+
+6. loss가 없을 때 D_sign의 네트워크 항은 "서명 round 수 × 요청 하나의 왕복 수 × 선택된 signer 중 최대 RTT_s"이고, 요청 하나의 왕복 수는 TCP 2, TLS를 쓰는 TCP 3, QUIC 2, 0-RTT QUIC 1이다. precomputation을 쓰는 FROST (3, 5)에서는 40, 60, 40, 20 ms이고, 0-RTT QUIC은 유지되는 연결과 같다.
+7. loss가 2%이면 연결 수립 packet의 손실이 꼬리를 만든다. TCP는 SYN의 재전송을 약 1초 기다리고, quic-go는 RTT 표본이 없을 때의 probe timeout인 200 ms를 기다린다. 0-RTT QUIC의 꼬리는 예측하지 않는다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
-- coordinator와 signer 사이 연결에 TLS를 넣지 않았다.
+- signer와 coordinator의 상호 인증을 구현하지 않았다. signer 연결의 TLS와 QUIC은 자체 서명 인증서를 쓰고 chain을 검증하지 않는다.
 - s2n-quic 서명 지연 서버, 두 번째 client 구현체, RTT_c 1 ms와 100 ms 조건을 측정하지 않았다.
 - aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
 - signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.

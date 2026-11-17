@@ -6,32 +6,97 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"net"
 	"testing"
 )
 
-// startSigners deals a key and runs one signer per share on loopback.
+// startSigners deals a key and runs one signer per share on loopback, over
+// plain TCP.
 func startSigners(t *testing.T, scheme string, threshold, signers int) (*Public, []string) {
+	t.Helper()
+	return startSignersOn(t, TransportPersistent, scheme, threshold, signers)
+}
+
+// startSignersOn is startSigners with the listener transport needs.
+func startSignersOn(t *testing.T, transport, scheme string, threshold, signers int) (*Public, []string) {
 	t.Helper()
 	pub, shares, _, err := Deal(scheme, threshold, signers)
 	if err != nil {
 		t.Fatal(err)
 	}
+	tlsConf, err := NewSignerTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := transportKinds[transport]
 	var addrs []string
 	for _, share := range shares {
 		signer, err := NewSigner(share)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if kind.quic {
+			ln, err := ListenQUIC("127.0.0.1:0", tlsConf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { ln.Close() })
+			go signer.ServeQUIC(ln)
+			addrs = append(addrs, ln.Addr().String())
+			continue
+		}
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
+		}
+		if kind.tls {
+			ln = tls.NewListener(ln, tlsConf)
 		}
 		t.Cleanup(func() { ln.Close() })
 		go signer.Serve(ln)
 		addrs = append(addrs, ln.Addr().String())
 	}
 	return pub, addrs
+}
+
+// A QUIC connection to a signer must outlive the request that opened it, and
+// 0-RTT must carry the request itself once a ticket is held. A silent
+// reconnect or a silent fall back to a full handshake would still produce
+// valid signatures and change every measured delay.
+func TestQUICTransportsReuseWhatTheyHold(t *testing.T) {
+	message := []byte("message")
+
+	pub, addrs := startSignersOn(t, TransportQUIC, SchemeFrost, 2, 3)
+	coordinator, err := NewCoordinator(pub, addrs, Options{Transport: TransportQUIC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := coordinator.peers[0].links[0]
+	for range 3 {
+		if _, _, err := coordinator.SignTraced(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if coordinator.peers[0].links[0] != first || first.broken() {
+		t.Fatal("the QUIC connection opened at startup was replaced")
+	}
+
+	pub, addrs = startSignersOn(t, TransportQUIC0RTT, SchemeFrost, 2, 3)
+	if coordinator, err = NewCoordinator(pub, addrs, Options{Transport: TransportQUIC0RTT}); err != nil {
+		t.Fatal(err)
+	}
+	_, trace, err := coordinator.SignTraced(context.Background(), message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, round := range trace.Rounds {
+		for _, call := range round.Calls {
+			if !call.EarlyData {
+				t.Fatalf("round %s reached signer %d without 0-RTT", round.Name, call.Signer)
+			}
+		}
+	}
 }
 
 // The coordinator's output must be accepted by the standard library verifier
@@ -60,11 +125,17 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 		{SchemeFrost, 2, 3, Options{Policy: PolicyFastest, NudgeDelayFactor: 0.001}},
 		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst}},
 		{SchemeRSA, 2, 3, Options{Policy: PolicyFastest, Transport: TransportPerRequest}},
+		{SchemeFrost, 2, 3, Options{Transport: TransportTLS, Conns: 2}},
+		{SchemeRSA, 2, 3, Options{Transport: TransportTLSPerRequest}},
+		{SchemeFrost, 3, 5, Options{Policy: PolicyFastest, Transport: TransportQUIC, NudgeDelayFactor: 0.001, Precompute: true}},
+		{SchemeFrost, 2, 5, Options{Policy: PolicyHedge, Transport: TransportQUIC, Conns: 2}},
+		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst, Transport: TransportQUICPerRequest}},
+		{SchemeFrost, 2, 3, Options{Transport: TransportQUIC0RTT}},
 	}
 	for _, tc := range cases {
 		name := tc.scheme + "/" + tc.opts.Policy + "/" + tc.opts.Transport
 		t.Run(name, func(t *testing.T) {
-			pub, addrs := startSigners(t, tc.scheme, tc.threshold, tc.signers)
+			pub, addrs := startSignersOn(t, tc.opts.Transport, tc.scheme, tc.threshold, tc.signers)
 			coordinator, err := NewCoordinator(pub, addrs, tc.opts)
 			if err != nil {
 				t.Fatal(err)
