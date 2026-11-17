@@ -30,6 +30,7 @@ func main() {
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent, per-request, tls, tls-per-request, quic, quic-per-request or quic-0rtt")
 	conns := flag.Int("signer-conns", 1, "connections per signer of a persistent transport")
 	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
+	qlogDir := flag.String("signer-qlog", "", "existing directory for qlog files of the QUIC signer connections")
 	n := flag.Int("n", 200, "number of measured signatures")
 	warmup := flag.Int("warmup", 5, "signatures made before measuring")
 	gap := flag.Duration("gap", 10*time.Millisecond, "pause between signatures")
@@ -43,6 +44,7 @@ func main() {
 	coordinator, err := tsig.NewCoordinator(pub, strings.Split(*signers, ","), tsig.Options{
 		Policy: *policy, HedgeWidth: *hedgeWidth, HedgeDelayFactor: *hedgeDelay, HedgeBudget: *hedgeBudget,
 		NudgeDelayFactor: *nudgeDelay, Transport: *transport, Conns: *conns, Precompute: *precompute,
+		SignerQlogDir: *qlogDir,
 	})
 	if err != nil {
 		log.Fatal(err)

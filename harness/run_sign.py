@@ -155,6 +155,15 @@ def coordinator_flags(config: dict, policy: str, transport: str) -> list[str]:
     return flags
 
 
+def signer_qlog_flags(args, cell: Path) -> list[str]:
+    """Flags that make the coordinator write the qlog of its QUIC signer
+    connections into the cell, which the container sees as /out."""
+    if not args.signer_qlog:
+        return []
+    (cell / "signer-qlog").mkdir(exist_ok=True)
+    return ["-signer-qlog", "/out/signer-qlog"]
+
+
 def cell_name(config: dict, policy: str, transport: str, rtt_spec: str, loss: float) -> str:
     scheme = config["scheme"] + ("-pre" if config["precompute"] else "")
     rtt = rtt_spec.replace("/", "-")
@@ -188,7 +197,7 @@ def run_bench(args, out: Path, config: dict, policy: str, transport: str, rtt_sp
         signers = start_signers(keys, rtts, loss, transport)
         bench = " ".join([
             "qth-signbench", "-public", "/keys/public.json", "-signers", signers, "-n", str(args.n),
-            "-out", "/out/sign.jsonl", *coordinator_flags(config, policy, transport),
+            "-out", "/out/sign.jsonl", *coordinator_flags(config, policy, transport), *signer_qlog_flags(args, cell),
         ])
         shape = f"tc qdisc replace dev eth0 root netem loss {loss}% && " if loss > 0 else ""
         result = subprocess.run(
@@ -228,6 +237,7 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
             "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", CLIENT_IMAGE,
             "qth-server-quicgo", "-cert", "/keys/cert.pem", "-threshold-public", "/keys/public.json",
             "-signers", signers, "-trace-out", "/out/server-trace.jsonl", *coordinator_flags(config, policy, transport),
+            *signer_qlog_flags(args, cell),
             capture=True,
         )
         sh("docker", "network", "connect", "--ip", COORDINATOR_IP, SIGNER_NETWORK, "qth-server")
@@ -273,6 +283,7 @@ def main() -> None:
     parser.add_argument("--server-cpus", default="4,5")
     parser.add_argument("--client-cpus", default="6,7")
     parser.add_argument("--keys", type=Path, default=HARNESS / "keys")
+    parser.add_argument("--signer-qlog", action="store_true", help="write qlog files of the QUIC signer connections")
     args = parser.parse_args()
     args.keys = args.keys.resolve()
     out = args.out.resolve()

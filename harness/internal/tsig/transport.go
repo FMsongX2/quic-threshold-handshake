@@ -1,14 +1,19 @@
 package tsig
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/qlogwriter"
 )
 
 // Transport selects how the coordinator reaches a signer. The first of each
@@ -57,7 +62,15 @@ const (
 	signerALPN = "qth-sign"
 )
 
-var quicClientConfig = &quic.Config{HandshakeIdleTimeout: dialTimeout, KeepAlivePeriod: 10 * time.Second}
+// qlogFile flushes what a trace buffered before it closes the file.
+type qlogFile struct {
+	*bufio.Writer
+	file *os.File
+}
+
+func (f qlogFile) Close() error {
+	return errors.Join(f.Flush(), f.file.Close())
+}
 
 // link is one persistent connection to a signer.
 type link interface {
@@ -73,6 +86,8 @@ type peer struct {
 	kind transportKind
 	// tlsConf is the client configuration of the TLS and QUIC transports.
 	tlsConf *tls.Config
+	// quicConf is the configuration of the QUIC transports.
+	quicConf *quic.Config
 
 	mu sync.Mutex
 	// links are the persistent connections to the signer, dialed on first
@@ -87,12 +102,28 @@ type peer struct {
 	curStart  time.Time
 }
 
-func newPeer(id int, addr, transport string, conns int) (*peer, error) {
+// newPeer describes signer id at addr. A non-empty qlogDir makes every QUIC
+// connection to the signer write its qlog there.
+func newPeer(id int, addr, transport string, conns int, qlogDir string) (*peer, error) {
 	kind, ok := transportKinds[transport]
 	if !ok {
 		return nil, errors.New("tsig: unknown transport " + transport)
 	}
 	p := &peer{id: id, addr: addr, kind: kind, links: make([]link, conns)}
+	if kind.quic {
+		p.quicConf = &quic.Config{HandshakeIdleTimeout: dialTimeout, KeepAlivePeriod: 10 * time.Second}
+		if qlogDir != "" {
+			p.quicConf.Tracer = func(_ context.Context, isClient bool, connID quic.ConnectionID) qlogwriter.Trace {
+				file, err := os.Create(filepath.Join(qlogDir, fmt.Sprintf("signer%d_%s.sqlog", id, connID)))
+				if err != nil {
+					return nil
+				}
+				trace := qlogwriter.NewConnectionFileSeq(qlogFile{bufio.NewWriter(file), file}, isClient, connID)
+				go trace.Run()
+				return trace
+			}
+		}
+	}
 	if kind.tls || kind.quic {
 		host, _, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -216,9 +247,9 @@ func (p *peer) dialQUIC(ctx context.Context) (*quic.Conn, error) {
 	endpoint := p.endpoint
 	p.mu.Unlock()
 	if p.kind.early {
-		return endpoint.DialEarly(ctx, remote, p.tlsConf, quicClientConfig)
+		return endpoint.DialEarly(ctx, remote, p.tlsConf, p.quicConf)
 	}
-	return endpoint.Dial(ctx, remote, p.tlsConf, quicClientConfig)
+	return endpoint.Dial(ctx, remote, p.tlsConf, p.quicConf)
 }
 
 func (p *peer) callOnce(ctx context.Context, op Op, payload []byte) (reply, error) {

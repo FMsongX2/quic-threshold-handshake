@@ -65,6 +65,9 @@ type Options struct {
 	// Precompute collects FROST nonce commitments ahead of time, which
 	// leaves one round trip per signature.
 	Precompute bool
+	// SignerQlogDir, if set, is an existing directory where the QUIC
+	// transports write one qlog file per signer connection.
+	SignerQlogDir string
 	// OnTrace, if set, receives the trace of every signature made through
 	// the crypto.Signer interface.
 	OnTrace func(*Trace)
@@ -184,7 +187,7 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 		}
 	}
 	for i, addr := range addrs {
-		p, err := newPeer(i+1, addr, opts.Transport, opts.Conns)
+		p, err := newPeer(i+1, addr, opts.Transport, opts.Conns, opts.SignerQlogDir)
 		if err != nil {
 			return nil, err
 		}

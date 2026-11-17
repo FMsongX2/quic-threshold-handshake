@@ -54,6 +54,7 @@ func main() {
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent, per-request, tls, tls-per-request, quic, quic-per-request or quic-0rtt")
 	conns := flag.Int("signer-conns", 1, "connections per signer of a persistent transport")
 	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
+	qlogDir := flag.String("signer-qlog", "", "existing directory for qlog files of the QUIC signer connections")
 	tracePath := flag.String("trace-out", "", "JSON lines file for per-signature traces")
 	flag.Parse()
 
@@ -72,7 +73,7 @@ func main() {
 		cert = thresholdCertificate(*certPath, *publicPath, *signers, tsig.Options{
 			Policy: *policy, HedgeWidth: *hedgeWidth, HedgeDelayFactor: *hedgeDelay, HedgeBudget: *hedgeBudget,
 			NudgeDelayFactor: *nudgeDelay, Transport: *transport, Conns: *conns, Precompute: *precompute,
-			OnTrace: traceWriter(*tracePath),
+			SignerQlogDir: *qlogDir, OnTrace: traceWriter(*tracePath),
 		})
 	}
 
