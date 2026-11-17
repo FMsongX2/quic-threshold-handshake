@@ -1,30 +1,25 @@
-// Command qth-server-quicgo is a quic-go server with two certificate key
+// Command qth-server-quicgo is a quic-go server with three certificate key
 // modes. With -key the key is local and every signature is delayed by a fixed
 // time. With -threshold-public the key is a tsig.Coordinator that obtains
-// signatures from remote signers. In both modes crypto.Signer is synchronous,
-// so signing blocks the goroutine that drives the TLS handshake of that
-// connection.
+// signatures from remote signers. With -coordd the key asks a qth-coordd
+// daemon, which runs the coordinator in another process. In every mode
+// crypto.Signer is synchronous, so signing blocks the goroutine that drives
+// the TLS handshake of that connection.
 package main
 
 import (
 	"context"
 	"crypto"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/json"
-	"encoding/pem"
 	"flag"
 	"io"
 	"log"
-	"os"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/qlog"
 
-	"github.com/FMsongX2/quic-threshold-handshake/harness/internal/tsig"
+	"github.com/FMsongX2/quic-threshold-handshake/harness/internal/coordd"
 )
 
 type delayedSigner struct {
@@ -44,22 +39,35 @@ func main() {
 	keyPath := flag.String("key", "", "PEM private key (local key mode)")
 	alpn := flag.String("alpn", "qth", "ALPN protocol")
 	delayMs := flag.Int("sign-delay-ms", 0, "time added to every signature (local key mode)")
-	publicPath := flag.String("threshold-public", "", "public.json written by qth-dealer (remote signer mode)")
-	signers := flag.String("signers", "", "comma-separated signer addresses in ID order")
-	policy := flag.String("policy", tsig.PolicyFixed, "fixed, fastest, first or hedge")
-	hedgeWidth := flag.Int("hedge-width", 0, "signers engaged by the hedge policy; 0 means all")
-	hedgeDelay := flag.Float64("hedge-delay-factor", 0, "start with t signers and widen after this multiple of their expected response time; 0 widens at once")
-	hedgeBudget := flag.Float64("hedge-budget", 0, "largest share of signatures that may widen after the delay; 0 means no limit")
-	nudgeDelay := flag.Float64("nudge-delay-factor", 0, "ping signers still silent after this multiple of the expected round trip; 0 disables")
-	transport := flag.String("transport", tsig.TransportPersistent, "persistent, per-request, tls, tls-per-request, quic, quic-per-request or quic-0rtt")
-	conns := flag.Int("signer-conns", 1, "connections per signer of a persistent transport")
-	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
-	qlogDir := flag.String("signer-qlog", "", "existing directory for qlog files of the QUIC signer connections")
-	tracePath := flag.String("trace-out", "", "JSON lines file for per-signature traces")
+	coorddAddr := flag.String("coordd", "", "qth-coordd address that signs for the key in -cert (daemon mode)")
+	coordFlags := coordd.RegisterCoordinatorFlags(flag.CommandLine)
 	flag.Parse()
 
 	var cert tls.Certificate
-	if *publicPath == "" {
+	var mode string
+	switch {
+	case *coorddAddr != "" && coordFlags.PublicPath != "":
+		log.Fatal("-coordd and -threshold-public are exclusive")
+	case *coorddAddr != "":
+		mode = "coordd"
+		leaf, err := coordd.LoadLeaf(*certPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cert = coordd.Certificate(leaf, coordd.NewClient(*coorddAddr, leaf.PublicKey))
+	case coordFlags.PublicPath != "":
+		mode = "threshold"
+		leaf, err := coordd.LoadLeaf(*certPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		coordinator, err := coordFlags.Coordinator()
+		if err != nil {
+			log.Fatal(err)
+		}
+		cert = coordd.Certificate(leaf, coordinator)
+	default:
+		mode = "local"
 		var err error
 		if cert, err = tls.LoadX509KeyPair(*certPath, *keyPath); err != nil {
 			log.Fatal(err)
@@ -69,12 +77,6 @@ func main() {
 			log.Fatal("private key does not implement crypto.Signer")
 		}
 		cert.PrivateKey = delayedSigner{Signer: signer, delay: time.Duration(*delayMs) * time.Millisecond}
-	} else {
-		cert = thresholdCertificate(*certPath, *publicPath, *signers, tsig.Options{
-			Policy: *policy, HedgeWidth: *hedgeWidth, HedgeDelayFactor: *hedgeDelay, HedgeBudget: *hedgeBudget,
-			NudgeDelayFactor: *nudgeDelay, Transport: *transport, Conns: *conns, Precompute: *precompute,
-			SignerQlogDir: *qlogDir, OnTrace: traceWriter(*tracePath),
-		})
 	}
 
 	tlsConf := &tls.Config{
@@ -86,7 +88,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("ready listen=%s sign_delay_ms=%d threshold=%t", *listen, *delayMs, *publicPath != "")
+	log.Printf("ready listen=%s sign_delay_ms=%d key=%s", *listen, *delayMs, mode)
 
 	for {
 		conn, err := ln.Accept(context.Background())
@@ -94,52 +96,5 @@ func main() {
 			log.Fatal(err)
 		}
 		go func() { <-conn.Context().Done() }()
-	}
-}
-
-func thresholdCertificate(certPath, publicPath, signers string, opts tsig.Options) tls.Certificate {
-	pub, err := tsig.LoadPublic(publicPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	coordinator, err := tsig.NewCoordinator(pub, strings.Split(signers, ","), opts)
-	if err != nil {
-		log.Fatal(err)
-	}
-	raw, err := os.ReadFile(certPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	block, _ := pem.Decode(raw)
-	if block == nil {
-		log.Fatalf("no certificate in %s", certPath)
-	}
-	leaf, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-	cert := tls.Certificate{Certificate: [][]byte{block.Bytes}, PrivateKey: coordinator, Leaf: leaf}
-	if pub.Scheme == tsig.SchemeRSA || pub.Scheme == tsig.SchemePlainRSA {
-		// The signers implement only this RSA scheme.
-		cert.SupportedSignatureAlgorithms = []tls.SignatureScheme{tls.PSSWithSHA256}
-	}
-	return cert
-}
-
-// traceWriter returns a callback that appends traces to path, or nil.
-func traceWriter(path string) func(*tsig.Trace) {
-	if path == "" {
-		return nil
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		log.Fatal(err)
-	}
-	var mu sync.Mutex
-	enc := json.NewEncoder(file)
-	return func(trace *tsig.Trace) {
-		mu.Lock()
-		defer mu.Unlock()
-		enc.Encode(trace)
 	}
 }
