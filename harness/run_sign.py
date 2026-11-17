@@ -97,7 +97,9 @@ def ensure_keys(keys_root: Path, config: dict) -> Path:
     return keys
 
 
-def wait_ready(container: str, timeout_s: float = 60) -> None:
+def wait_ready(container: str, timeout_s: float = 300) -> None:
+    """Waits for the container to log "ready". A coordinator that fills a
+    pool of ECDSA presignatures first needs minutes on one-core signers."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         logs = subprocess.run(["docker", "logs", container], text=True, capture_output=True)

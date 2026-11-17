@@ -38,6 +38,8 @@ def decompose(trace: dict) -> dict:
 # Round trips one request costs when its transport opens a connection for it:
 # the TCP handshake, the TLS handshake and the request itself.
 TRIPS_PER_REQUEST = {"per-request": 2, "tls-per-request": 3, "quic-per-request": 2, "quic-0rtt": 1}
+# Request rounds per signature without precomputation; with it, one.
+ROUNDS = {"frost": 2, "ecdsa": 6}
 
 
 def model_network_ms(meta: dict) -> float:
@@ -45,7 +47,7 @@ def model_network_ms(meta: dict) -> float:
     times the largest RTT among the signers the policy selects."""
     rtts = meta["signer_rtts_ms"]
     chosen = rtts[: meta["t"]] if meta["policy"].startswith("fixed") else sorted(rtts)[: meta["t"]]
-    rounds = 2 if meta["scheme"] == "frost" and not meta["precompute"] else 1
+    rounds = 1 if meta["precompute"] else ROUNDS.get(meta["scheme"], 1)
     return rounds * TRIPS_PER_REQUEST.get(meta["transport"], 1) * max(chosen)
 
 

@@ -40,7 +40,7 @@ func RegisterCoordinatorFlags(fs *flag.FlagSet) *CoordinatorFlags {
 	fs.Float64Var(&o.NudgeDelayFactor, "nudge-delay-factor", 0, "ping signers still silent after this multiple of the expected round trip; 0 disables")
 	fs.StringVar(&o.Transport, "transport", tsig.TransportPersistent, "persistent, per-request, tls, tls-per-request, quic, quic-per-request or quic-0rtt")
 	fs.IntVar(&o.Conns, "signer-conns", 1, "connections per signer of a persistent transport")
-	fs.BoolVar(&o.Precompute, "precompute", false, "collect FROST commitments ahead of time")
+	fs.BoolVar(&o.Precompute, "precompute", false, "collect FROST commitments or ECDSA presignatures ahead of time")
 	fs.StringVar(&o.SignerQlogDir, "signer-qlog", "", "existing directory for qlog files of the QUIC signer connections")
 	fs.StringVar(&f.TracePath, "trace-out", "", "JSON lines file for per-signature traces")
 	return f
