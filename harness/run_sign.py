@@ -2,8 +2,10 @@
 """Runs threshold-signer measurements on one Docker host.
 
 bench      measures the signing delay D_sign with qth-signbench, without QUIC.
-handshake  measures the handshake time T_hs with a quic-go server whose
-           certificate key is the coordinator.
+handshake  measures the handshake time T_hs with a QUIC server whose
+           certificate key is the coordinator. quic-go can hold the
+           coordinator in its own process; every server can reach it through
+           a qth-coordd daemon in the same container.
 
 Every signer runs in its own container on a dedicated bridge network. The
 round-trip delay to a signer is applied with tc netem on that signer's egress;
@@ -38,6 +40,22 @@ SIGNER_TLS_PORT = 7001
 SIGNER_CPUS = ["0", "1", "2", "3", "8", "10", "11"]
 COORDINATOR_NAME = "qth-coord"
 CLIENT_NAME = "qth-client"
+DAEMON_ADDR = "127.0.0.1:7100"
+# Front servers of handshake mode: name -> (image, Dockerfile, server command
+# that signs through the daemon). quic-go without a command holds the
+# coordinator in its own process.
+SERVERS = {
+    "quic-go": ("qth-go", "go.Dockerfile", None),
+    "quic-go-coordd": ("qth-go", "go.Dockerfile", ["qth-server-quicgo", "-cert", "/keys/cert.pem", "-coordd", DAEMON_ADDR]),
+    "aioquic": (
+        "qth-aioquic", "aioquic.Dockerfile",
+        ["python3", "/opt/qth/server.py", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR],
+    ),
+    "quiche": ("qth-quiche", "quiche.Dockerfile", ["qth-server-quiche", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR]),
+}
+# Clients of handshake mode: name -> (image, Dockerfile, program). Every
+# program takes the flags of qth-client and writes the same records.
+CLIENTS = {"quic-go": ("qth-go", "go.Dockerfile", "qth-client")}
 
 
 def signer_name(i: int) -> str:
@@ -270,19 +288,27 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
     meta.update(
         client_rtt_ms=args.client_rtt, client_loss_pct=args.client_loss, concurrency=args.conc, rate=args.rate,
         server_cpus=args.server_cpus, client_cpus=args.client_cpus, events=args.events,
+        server=args.server, client=args.client,
     )
+    server_image, _, daemon_server = SERVERS[args.server]
+    client_image, _, client_program = CLIENTS[args.client]
     uid, gid = os.getuid(), os.getgid()
     try:
         signers = start_signers(args, keys, rtts, loss, transport)
         # The server needs both networks before it starts, because the
         # coordinator connects to the signers at startup.
+        coordinator = [
+            "-threshold-public", "/keys/public.json", "-signers", signers, "-trace-out", "/out/server-trace.jsonl",
+            *coordinator_flags(config, policy, transport), *signer_qlog_flags(args, cell),
+        ]
+        if daemon_server is None:
+            command = ["qth-server-quicgo", "-cert", "/keys/cert.pem", *coordinator]
+        else:
+            command = ["serve-with-coordd", *coordinator, "--", *daemon_server]
         sh(
             "docker", "create", "--name", "qth-server", "--network", NETWORK, "--ip", SERVER_IP,
             "--cap-add", "NET_ADMIN", "--cpuset-cpus", args.server_cpus,
-            "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", CLIENT_IMAGE,
-            "qth-server-quicgo", "-cert", "/keys/cert.pem", "-threshold-public", "/keys/public.json",
-            "-signers", signers, "-trace-out", "/out/server-trace.jsonl", *coordinator_flags(config, policy, transport),
-            *signer_qlog_flags(args, cell),
+            "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", server_image, *command,
             capture=True,
         )
         sh("docker", "network", "connect", "--ip", COORDINATOR_IP, SIGNER_NETWORK, "qth-server")
@@ -297,7 +323,7 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
         client = " && ".join([
             " ".join(["tc", "qdisc", "replace", "dev", "eth0", "root", "netem", "delay", f"{args.client_rtt / 2}ms"]
                      + (["loss", f"{args.client_loss}%"] if args.client_loss > 0 else [])),
-            f"qth-client -addr {SERVER_IP}:4433 -ca /keys/cert.pem -n {args.n} {pacing} -out /out/client.jsonl",
+            f"{client_program} -addr {SERVER_IP}:4433 -ca /keys/cert.pem -n {args.n} {pacing} -out /out/client.jsonl",
         ])
         events = parse_events(args.events)
         link_rtts, link_losses = list(rtts), [loss] * len(rtts)
@@ -308,7 +334,7 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
                 "docker", "run", "--rm", "--name", CLIENT_NAME, "--network", NETWORK,
                 "--cap-add", "NET_ADMIN", "--cpuset-cpus", args.client_cpus,
                 *([] if args.rate > 0 else ["-e", "QLOGDIR=/out/qlog"]),
-                "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", CLIENT_IMAGE,
+                "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", client_image,
                 "sh", "-c", f"{client}; rc=$?; chown -R {uid}:{gid} /out; exit $rc",
             ],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -351,12 +377,18 @@ def main() -> None:
     parser.add_argument("--client-cpus", default="6,7")
     parser.add_argument("--keys", type=Path, default=HARNESS / "keys")
     parser.add_argument("--signer-qlog", action="store_true", help="write qlog files of the QUIC signer connections")
+    parser.add_argument("--server", default="quic-go", choices=sorted(SERVERS), help="front server (handshake mode)")
+    parser.add_argument("--client", default="quic-go", choices=sorted(CLIENTS), help="client (handshake mode)")
     args = parser.parse_args()
     args.keys = args.keys.resolve()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     images = build_images([])
+    for image, dockerfile, _ in (SERVERS[args.server], CLIENTS[args.client]):
+        if image not in images:
+            sh("docker", "build", "-q", "-t", image, "-f", str(HARNESS / "docker" / dockerfile), str(HARNESS))
+            images[image] = sh("docker", "image", "inspect", "-f", "{{.Id}}", image, capture=True).strip()
     docker_quiet("network", "create", "--subnet", SIGNER_SUBNET, SIGNER_NETWORK)
     if args.mode == "handshake":
         docker_quiet("network", "create", "--subnet", SUBNET, NETWORK)
