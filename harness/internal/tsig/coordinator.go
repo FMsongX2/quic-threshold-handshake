@@ -3,6 +3,7 @@ package tsig
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
@@ -62,8 +63,9 @@ type Options struct {
 	// policies ping the signers that have not answered after this multiple
 	// of the expected round trip. Persistent transports only.
 	NudgeDelayFactor float64
-	// Precompute collects FROST nonce commitments ahead of time, which
-	// leaves one round trip per signature.
+	// Precompute collects FROST nonce commitments or runs the
+	// message-independent ECDSA rounds ahead of time, which leaves one round
+	// trip per signature.
 	Precompute bool
 	// SignerQlogDir, if set, is an existing directory where the QUIC
 	// transports write one qlog file per signer connection.
@@ -132,6 +134,10 @@ type Coordinator struct {
 	pools []chan *frost.Commitment
 	// refills wakes the goroutine that tops up the pool of the same index.
 	refills []chan struct{}
+	// ecdsaPools, guarded by ecdsaMu, holds presignatures per signer set,
+	// keyed by signerSetKey.
+	ecdsaMu    sync.Mutex
+	ecdsaPools map[string]*ecdsaPool
 
 	hedgeMu sync.Mutex
 	// hedgeTokens is the number of hedges HedgeBudget currently allows.
@@ -173,14 +179,17 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 			return nil, errors.New("tsig: hedge delay factor must be >= 0 and hedge budget within [0, 1]")
 		}
 	}
-	if opts.Precompute && pub.Scheme != SchemeFrost {
-		return nil, errors.New("tsig: precompute needs the frost scheme")
+	if opts.Precompute && pub.Scheme != SchemeFrost && pub.Scheme != SchemeECDSA {
+		return nil, errors.New("tsig: precompute needs the frost or ecdsa scheme")
 	}
 	public, err := pub.publicKey()
 	if err != nil {
 		return nil, err
 	}
-	c := &Coordinator{pub: pub, public: public, opts: opts, hedgeTokens: hedgeBurst}
+	c := &Coordinator{
+		pub: pub, public: public, opts: opts, hedgeTokens: hedgeBurst,
+		ecdsaPools: make(map[string]*ecdsaPool),
+	}
 	if pub.Scheme == SchemeFrost {
 		if c.frostConf, err = pub.frostConfig(); err != nil {
 			return nil, err
@@ -222,7 +231,15 @@ func NewCoordinator(pub *Public, addrs []string, opts Options) (*Coordinator, er
 			}
 		}
 	}
-	if opts.Precompute {
+	if opts.Precompute && pub.Scheme == SchemeECDSA {
+		// Wait for a full pool, so that a measurement starts without
+		// presigning in the background.
+		peers := c.choose()
+		if err := c.fillPresigns(peers, c.ecdsaPoolFor(peers)); err != nil {
+			return nil, err
+		}
+	}
+	if opts.Precompute && pub.Scheme == SchemeFrost {
 		for _, p := range c.peers {
 			pool := make(chan *frost.Commitment, commitPoolSize)
 			wake := make(chan struct{}, 1)
@@ -291,13 +308,17 @@ func (c *Coordinator) fetchCommitments(ctx context.Context, p *peer, count uint1
 // Public returns the key in the certificate.
 func (c *Coordinator) Public() crypto.PublicKey { return c.public }
 
-// Sign implements crypto.Signer for the two TLS 1.3 signature schemes this
-// package supports: ed25519 and rsa_pss_rsae_sha256.
+// Sign implements crypto.Signer for the three TLS 1.3 signature schemes this
+// package supports: ed25519, rsa_pss_rsae_sha256 and ecdsa_secp256r1_sha256.
 func (c *Coordinator) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	switch c.pub.Scheme {
 	case SchemeFrost, SchemePlainEd25519:
 		if opts.HashFunc() != crypto.Hash(0) {
 			return nil, errors.New("tsig: Ed25519 signs the unhashed message")
+		}
+	case SchemeECDSA:
+		if opts.HashFunc() != crypto.SHA256 {
+			return nil, errors.New("tsig: ECDSA supports only SHA-256")
 		}
 	default:
 		if pss, ok := opts.(*rsa.PSSOptions); !ok || pss.Hash != crypto.SHA256 {
@@ -312,8 +333,8 @@ func (c *Coordinator) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) (
 }
 
 // SignTraced signs input, which is the message for Ed25519 schemes and the
-// SHA-256 digest for RSA schemes, and verifies the result with the standard
-// verifier before returning it.
+// SHA-256 digest for RSA and ECDSA schemes, and verifies the result with the
+// standard verifier before returning it.
 func (c *Coordinator) SignTraced(ctx context.Context, input []byte) ([]byte, *Trace, error) {
 	ctx, cancel := context.WithTimeout(ctx, signTimeout)
 	defer cancel()
@@ -337,6 +358,8 @@ func (c *Coordinator) SignTraced(ctx context.Context, input []byte) ([]byte, *Tr
 		} else {
 			signature, err = c.signFrost(ctx, input, trace)
 		}
+	case SchemeECDSA:
+		signature, err = c.signECDSA(ctx, input, trace)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -356,6 +379,10 @@ func (c *Coordinator) verify(input, signature []byte) error {
 		}
 	case *rsa.PublicKey:
 		return rsa.VerifyPSS(public, crypto.SHA256, input, signature, pssOptions)
+	case *ecdsa.PublicKey:
+		if !ecdsa.VerifyASN1(public, input, signature) {
+			return errors.New("tsig: combined ECDSA signature does not verify")
+		}
 	}
 	return nil
 }

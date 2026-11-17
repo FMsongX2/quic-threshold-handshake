@@ -27,6 +27,7 @@ import (
 // and serve as the (t, n) = (1, 1) baseline.
 const (
 	SchemeFrost        = "frost"
+	SchemeECDSA        = "ecdsa"
 	SchemeRSA          = "rsa"
 	SchemePlainEd25519 = "plain-ed25519"
 	SchemePlainRSA     = "plain-rsa"
@@ -131,6 +132,12 @@ func Deal(scheme string, t, n int) (*Public, []*Share, []byte, error) {
 		}
 		pub.FrostConfig = conf.Encode()
 		certSigner = groupKeySigner{secret: secret, public: ed25519.PublicKey(verificationKey.Encode())}
+
+	case SchemeECDSA:
+		var err error
+		if secrets, certSigner, err = dealECDSA(t, n); err != nil {
+			return nil, nil, nil, err
+		}
 
 	default:
 		return nil, nil, nil, fmt.Errorf("tsig: unknown scheme %q", scheme)

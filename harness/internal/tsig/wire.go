@@ -29,6 +29,8 @@ const (
 	OpFrostSign
 	// OpRSAShare returns a threshold RSA signature share.
 	OpRSAShare
+	// OpECDSARound runs one round of a threshold ECDSA session.
+	OpECDSARound
 )
 
 const (
