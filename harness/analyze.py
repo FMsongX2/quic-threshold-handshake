@@ -105,17 +105,27 @@ def summarize_cell(cell: Path) -> dict:
 
     first_types = sorted({f"{r['first_recv_type']}:{r['first_recv_frames']}" for r in ok if r.get("first_recv_type")})
     pto = column("max_pto_count")
-    # Handshakes finished per second between the first start and the last
-    # completion; below the offered rate when the server falls behind.
-    span_s = (max(r["start_unix_ns"] + r["t_hs_ms"] * 1e6 for r in ok) - min(r["start_unix_ns"] for r in ok)) / 1e9 if ok else 0
+    # Fixed-rate cells: handshakes finished inside the period in which the
+    # client started them, per second, and the median of those started in the
+    # last fifth of it. A server that falls behind completes fewer than were
+    # offered and its late handshakes take longer than its early ones.
+    rate = meta.get("rate", 0)
+    completed_per_s = late_p50 = ""
+    if rate and measured:
+        first = min(r["start_unix_ns"] for r in measured)
+        period_ns = len(measured) / rate * 1e9
+        completed_per_s = round(sum(1 for r in ok if r["start_unix_ns"] + r["t_hs_ms"] * 1e6 <= first + period_ns) / (period_ns / 1e9), 1)
+        late = [r["t_hs_ms"] for r in ok if r["start_unix_ns"] >= first + 0.8 * period_ns]
+        late_p50 = round(percentile(late, 50), 2) if late else ""
     return {
         "server": meta["server"],
         "rtt_ms": meta["rtt_ms"],
         "loss_pct": meta["loss_pct"],
         "sign_delay_ms": meta["sign_delay_ms"],
         "concurrency": meta["concurrency"],
-        "rate": meta.get("rate", 0),
-        "completed_per_s": round(len(ok) / span_s, 1) if span_s > 0 else "",
+        "rate": rate,
+        "completed_per_s": completed_per_s,
+        "t_hs_last_fifth_p50": late_p50,
         "n": len(measured),
         "ok": len(ok),
         "t_hs_p50": p("t_hs_ms", 50),
