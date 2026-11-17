@@ -296,6 +296,26 @@ batch를 시작한 직후, 결과를 보기 전에 적었다. signer 배치는 �
 
 region 하나가 통째로 침해되어도 key가 유출되지 않으려면 한 region의 signer 수가 t보다 적어야 한다. signer 5개를 세 region에 두면 t = 2에서는 이 조건을 만족하는 배치가 없고, t = 3에서는 region별 signer 수가 2, 2, 1인 배치만 만족한다. 이때 D_sign의 하한은 두 번째로 가까운 region의 RTT_s다. 이 조건을 넣은 구성 비교는 측정 뒤에 정리한다.
 
+### 구현체별 실제 signer를 위한 구현
+
+- coordinator를 `qth-coordd`라는 daemon으로도 쓸 수 있게 했다. 서버는 TLS가 인증서 key에 서명을 요청하는 message를 daemon에 그대로 보내고 서명을 받는다. protocol은 `harness/internal/coordd`에 있다. daemon은 서버와 같은 container에서 돌며, `serve-with-coordd`가 daemon이 준비된 뒤에 서버를 시작한다.
+- 이 방식으로 aioquic, quiche, s2n-quic 서버에 실제 signer를 붙였다. aioquic은 서명 호출 안에서 daemon의 응답을 기다린다. quiche는 BoringSSL의 비동기 private key method로 요청만 보내고 event loop로 돌아간다.
+- quic-go 서버는 coordinator를 process 안에 두는 기존 방식과 daemon을 거치는 방식을 모두 지원한다. 두 방식을 같은 조건에서 재면 daemon을 거치는 비용이 나온다.
+- s2n-quic 서버는 서명 방식에 따라 TLS library가 다르다. 서명 지연을 주입할 때는 s2n-tls의 비동기 private key 연산을 쓴다. daemon을 쓸 때는 rustls를 쓰고 handshake마다 TLS 처리를 별도 thread에 맡긴다. s2n-tls의 비동기 연산은 서명할 message의 digest만 넘겨주는데, daemon protocol과 Ed25519는 digest가 아닌 message를 필요로 하기 때문이다. s2n-tls는 Ed25519 인증서 key를 지원하지 않는다.
+- 두 번째 client는 s2n-quic(rustls)으로 만들었다. quic-go client와 같은 option과 기록 형식을 쓴다. ECDSA P-256, Ed25519, RSA 인증서를 모두 검증하는 것을 실행으로 확인했다. 정해진 rate의 부하와 qlog는 quic-go client만 지원한다.
+- 구현 세 갈래(daemon과 서버 연동, s2n-quic, threshold ECDSA)는 서로 다른 branch에서 동시에 진행하고 loopback에서 확인한 뒤 합쳤다.
+
+### 측정 대기열
+
+측정은 host의 tmux session에서 순서대로 실행한다. 각 묶음은 code가 바뀌지 않도록 별도로 checkout한 directory에서 돈다.
+
+| 순서 | 내용 | script | commit |
+| --- | --- | --- | --- |
+| 1 | batch 1 | `harness/campaigns/batch1.sh` | `afc2b0b` |
+| 2 | 구현체별 실제 signer, client 링크 loss | `harness/campaigns/batch2.sh`의 `impl-signer`, `impl-client-loss` | `c740ff0` |
+| 3 | 세 region 배치의 전수 측정 | `harness/campaigns/phase3.sh` | `c740ff0` |
+| 4 | s2n-quic 서버의 지연 주입 측정, 두 번째 client | `harness/campaigns/batch2.sh`의 `p1-s2n`, `client-s2n` | `c740ff0` |
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
