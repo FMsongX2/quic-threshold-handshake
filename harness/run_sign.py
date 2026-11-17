@@ -41,6 +41,9 @@ SIGNER_CPUS = ["0", "1", "2", "3", "8", "10", "11"]
 COORDINATOR_NAME = "qth-coord"
 CLIENT_NAME = "qth-client"
 DAEMON_ADDR = "127.0.0.1:7100"
+# The daemon's second listener, for requests that carry a digest. s2n-quic
+# uses it with RSA and P-256 keys, where s2n-tls can sign asynchronously.
+DAEMON_DIGEST_ADDR = "127.0.0.1:7101"
 # Front servers of handshake mode: name -> (image, Dockerfile, server command
 # that signs through the daemon). quic-go without a command holds the
 # coordinator in its own process.
@@ -52,7 +55,10 @@ SERVERS = {
         ["python3", "/opt/qth/server.py", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR],
     ),
     "quiche": ("qth-quiche", "quiche.Dockerfile", ["qth-server-quiche", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR]),
-    "s2n-quic": ("qth-s2n", "s2n-quic.Dockerfile", ["qth-server-s2n", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR]),
+    "s2n-quic": (
+        "qth-s2n", "s2n-quic.Dockerfile",
+        ["qth-server-s2n", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR, "--coordd-digest", DAEMON_DIGEST_ADDR],
+    ),
 }
 
 
@@ -302,7 +308,7 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
         if daemon_server is None:
             command = ["qth-server-quicgo", "-cert", "/keys/cert.pem", *coordinator]
         else:
-            command = ["serve-with-coordd", *coordinator, "--", *daemon_server]
+            command = ["serve-with-coordd", "-digest-listen", DAEMON_DIGEST_ADDR, *coordinator, "--", *daemon_server]
         sh(
             "docker", "create", "--name", "qth-server", "--network", NETWORK, "--ip", SERVER_IP,
             "--cap-add", "NET_ADMIN", "--cpuset-cpus", args.server_cpus,
