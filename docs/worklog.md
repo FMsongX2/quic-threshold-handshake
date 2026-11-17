@@ -278,6 +278,24 @@ batch를 시작한 직후, 결과를 보기 전에 적었다. signer 배치는 �
 10. RTT_c 1 ms와 100 ms. 단일 handshake의 T_hs는 20 ms일 때와 같이 주입 지연만큼만 늘어난다.
 11. jitter. D_sign 중앙값은 변하지 않고 p95가 가장 먼 signer의 jitter 표준편차의 2배쯤 늘어난다.
 
+### Phase 3의 모델과 예측
+
+지금까지의 측정으로 서명 지연 모델을 만들어 `harness/model.py`에 넣었다. 대상은 연결을 유지하고 서명을 하나씩 만드는 조건이다.
+
+- signer 하나의 응답 시간은 그 signer의 RTT_s(r)에 계산 시간을 더한 값이다. 요청이나 응답이 손실되면 응답 시간이 2r + c가 되며 c는 TCP 210 ms, QUIC 27 ms다. nudge를 쓰면 ping을 보낸 시각에 2r을 더한 값이 된다. QUIC에서는 ping이 probe timeout보다 먼저 나갈 때만 그렇다.
+- 정책별 결합은 구현을 따른다. fixed와 fastest는 고른 t개 중 가장 늦은 응답, first는 n개 중 t번째 응답이다. hedge는 round마다 가장 늦은 signer의 합이 가장 작은 t개 부분집합의 값이다. 지연 hedge는 가까운 t개가 지연 시간 안에 끝나지 않으면 그 시점부터 넓힌 집합의 t번째 응답을 더한다.
+- 예산을 둔 hedge, round가 2개인 FROST의 지연 hedge, 요청마다 맺는 연결, handshake가 몰리는 조건은 모델에 넣지 않았다.
+- 기존 측정 170개 조건과 비교한 절대 오차의 중앙값은 D_sign의 중앙값에서 0.05 ms, p95에서 0.75 ms, p99에서 2.80 ms였다. 오차의 90번째 백분위는 각각 0.63, 7.37, 18.53 ms다. p99의 오차는 TCP에서 loss가 있을 때 크다. 모델은 재전송된 packet이 다시 손실되는 경우를 넣지 않았다.
+
+가설 H4의 실험은 signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 나누어 두는 배치 5가지와 t = 2, 3, 4에서, 모델이 다루는 정책을 모두 측정하는 것이다. 예측은 측정 전에 `results/2026-11-18-phase3/predictions-*.csv`에 적었다. 예측의 요지는 다음과 같다.
+
+1. loss가 없을 때 D_sign 중앙값은 정책과 무관하게 "t번째로 가까운 signer의 RTT_s + 0.34 ms"다. 배치 5/5/20/20/80에서 t = 2, 3, 4일 때 5.3, 20.3, 20.3 ms다.
+2. loss 2%에서 p99가 가장 낮은 정책은 여유 signer가 가까이 있는지에 따라 갈린다. t번째와 t+1번째로 가까운 signer가 같은 region에 있으면 hedge가 가장 낮고 p99가 중앙값과 같다(5/5/20/20/80의 t = 3에서 20.3 ms). 여유 signer가 먼 region에 있으면 지연 hedge나 nudge가 가장 낮다(5/5/20/20/80의 t = 2에서 지연 hedge 15.0 ms).
+3. fastest만 쓰면 QUIC에서 p99가 "2r + 27 ms"가 된다. t번째 signer가 5, 20, 80 ms일 때 37.3, 67.3, 187.3 ms다.
+4. 가설 H4의 판정 기준은 배치와 t마다 모델이 p99로 고른 상위 3개 정책 안에 실측 p99가 가장 낮은 정책이 들어가는지다. 모델에서 p99가 같은 정책은 같은 순위로 센다.
+
+region 하나가 통째로 침해되어도 key가 유출되지 않으려면 한 region의 signer 수가 t보다 적어야 한다. signer 5개를 세 region에 두면 t = 2에서는 이 조건을 만족하는 배치가 없고, t = 3에서는 region별 signer 수가 2, 2, 1인 배치만 만족한다. 이때 D_sign의 하한은 두 번째로 가까운 region의 RTT_s다. 이 조건을 넣은 구성 비교는 측정 뒤에 정리한다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
