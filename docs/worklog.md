@@ -223,6 +223,26 @@ signer 연결을 여러 개 두는 것은 요청마다 전달 순서를 독립�
 6. loss가 없을 때 D_sign의 네트워크 항은 "서명 round 수 × 요청 하나의 왕복 수 × 선택된 signer 중 최대 RTT_s"이고, 요청 하나의 왕복 수는 TCP 2, TLS를 쓰는 TCP 3, QUIC 2, 0-RTT QUIC 1이다. precomputation을 쓰는 FROST (3, 5)에서는 40, 60, 40, 20 ms이고, 0-RTT QUIC은 유지되는 연결과 같다.
 7. loss가 2%이면 연결 수립 packet의 손실이 꼬리를 만든다. TCP는 SYN의 재전송을 약 1초 기다리고, quic-go는 RTT 표본이 없을 때의 probe timeout인 200 ms를 기다린다. 0-RTT QUIC의 꼬리는 예측하지 않는다.
 
+### signer 연결의 TLS와 QUIC 측정
+
+| 측정 | 결과 directory | 내용 |
+| --- | --- | --- |
+| 유지되는 연결, 요청을 하나씩 | `results/2026-11-17-signer-quic-policy` | TCP·TLS·QUIC, nudge 유무, loss {0, 2}%, 조건마다 1,000회 |
+| 유지되는 연결, 동시 handshake | `results/2026-11-17-signer-quic-conc` | TCP × {1, 64}, QUIC × {1, 4, 16}, 0-RTT QUIC, nudge 유무, loss {0, 2}%, 조건마다 5,000개 |
+| QUIC 연결의 qlog | `results/2026-11-17-signer-quic-qlog` | QUIC × {1, 16}, loss {0, 2}%, coordinator 쪽 qlog 기록 |
+| 요청마다 새 연결 | `results/2026-11-17-signer-setup` | scheme 3종, transport 5종, loss {0, 2}%, 조건마다 1,000회 |
+
+결과는 [results-phase3-signer-transport.md](results-phase3-signer-transport.md)에 정리했다. 측정은 11월 17일 밤에 시작해 18일 새벽에 끝났다.
+
+- 예측 7개 중 1번이 틀렸다. QUIC 연결 하나로는 handshake가 몰리고 loss가 있을 때 T_hs 중앙값이 돌아오지 않았다((3, 5)에서 11.0~14.4 ms 길었다).
+- 원인을 추측으로 남기지 않으려고 coordinator가 signer와 맺는 QUIC 연결의 qlog를 기록하는 option을 넣고 다시 측정했다. loss 2%에서 congestion window가 63.5 packet에서 11.9 packet으로 줄었고, 한 번에 몰린 요청의 절반이 처음 전송되기까지 14.1 ms 이상을 기다렸다. 연결 16개에서는 이 대기가 없었다. 집계 스크립트는 `harness/analyze_signer_qlog.py`다.
+- 이 결과로 11월 14일의 해석을 고쳤다. 연결 하나에 몰린 요청이 느려지는 원인을 손실 하나를 함께 기다리는 것으로만 적었는데, 줄어든 congestion window도 원인이다. [results-phase3-connections.md](results-phase3-connections.md)의 머리와 5절에 수정을 적었다. TCP에서 두 원인의 몫은 나누지 못했다.
+- QUIC 연결을 signer당 4개 두면 nudge 없이 중앙값이 돌아왔고 꼬리가 TCP × 64 + nudge보다 짧았다. coordinator와 signer 사이 transport의 기본 구성을 "signer당 유지되는 QUIC 연결 4개"로 바꿨다.
+- 뒤따르는 packet이 없는 연결에서 손실이 난 요청의 응답 시간은 QUIC에서 2r + 27 ms, TCP에서 2r + 206~213 ms였다(r은 signer의 RTT_s). QUIC의 값은 probe timeout의 식과 quic-go가 알리는 max_ack_delay 26 ms로 설명된다. TCP의 약 200 ms는 Linux의 재전송 timer 하한과 맞는다. 지금까지 "약 200 ms의 timer"라고만 적었던 값이다.
+- 요청마다 연결을 맺는 TCP는 loss 2%에서 서명의 6.8~22.2%가 1초 넘게 늦었다. TLS를 쓰는 TCP의 세 조건에서 서명이 하나씩 실패했고, 모두 측정 도구의 연결 제한 시간 5초를 넘긴 경우다.
+- 서명 하나가 실패하면 benchmark가 그 자리에서 끝나던 것을, 실패를 기록하고 계속하도록 바꿨다. 종료 상태는 여전히 실패를 알린다. 드문 실패 하나가 조건 전체의 측정을 버리게 하지 않기 위해서다.
+- qlog 파일의 마지막 기록은 container를 지울 때 잘린다. 집계 스크립트는 잘린 기록을 건너뛴다. qlog 원본은 저장소에 넣지 않았다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
@@ -232,6 +252,8 @@ signer 연결을 여러 개 두는 것은 요청마다 전달 순서를 독립�
 - signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
 - Phase 3의 최적화 문제를 풀지 않았다.
 - signer 장애 조건과 RTT_s가 변하는 조건에서 hedge와 nudge를 측정하지 않았다.
-- signer 연결에 QUIC을 쓰는 구성을 구현하지 않았다. 연결 여러 개와 nudge의 조합을 QUIC 연결 하나와 비교하는 것이 다음 후보다.
-- TCP의 손실 복구 동작을 packet 단위로 확인하지 않았다.
+- QUIC 연결 수를 동시 요청 수와 RTT_s에 맞춰 정하는 규칙을 만들지 않았다. 연결 2개와 3개, 동시 handshake 100개가 아닌 조건을 측정하지 않았다.
+- TCP의 손실 복구 동작과 congestion window를 packet 단위로 확인하지 않았다. QUIC은 coordinator 쪽 qlog로 확인했다.
+- quic-go가 아닌 QUIC 구현체를 signer 연결에 쓰지 않았다. congestion control과 timer의 초깃값이 구현체마다 다르다.
+- 0-RTT QUIC이 handshake가 몰릴 때 30~42 ms 느린 원인을 분해하지 않았다.
 - nudge의 지연 시간에 signer 계산 시간을 반영하지 않았다.

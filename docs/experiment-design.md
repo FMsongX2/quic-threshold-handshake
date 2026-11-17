@@ -17,8 +17,8 @@
 | 서명 | hedge의 폭 m | t부터 n까지 |
 | 서명 | hedge 지연 계수와 예산 | 계수 0(처음부터 모든 세션), 1, 1.5, 3. 예산 없음, 0.2 |
 | 서명 | ping nudge | 미사용, 지연 계수 1.5, 3 |
-| 서명 | signer 간 transport | 유지되는 연결, 요청마다 새 연결 |
-| 서명 | signer당 연결 수 | 1, 4, 16, 64 |
+| 서명 | signer 간 transport | TCP, TLS 1.3을 쓰는 TCP, QUIC. 각각 유지되는 연결과 요청마다 새 연결. QUIC은 0-RTT도 포함한다. |
+| 서명 | signer당 연결 수 | TCP는 1, 4, 16, 64. QUIC은 1, 4, 16 |
 | 네트워크 | RTT_c | 1 ms, 20 ms, 100 ms |
 | 네트워크 | client와 front server 사이 loss | 0%, 1% |
 | 네트워크 | RTT_s | 0 ms(netem 없음), 5 ms, 50 ms. signer마다 다른 값을 주는 배치도 포함한다. |
@@ -126,11 +126,12 @@ share가 서로 독립이어서 $n$개 전체에 요청하고 먼저 온 $t$개�
 
 Phase 2 측정으로 이 모델을 다음과 같이 구체화했다([results-phase2-signer.md](results-phase2-signer.md) 3절, 5절).
 
-- loss가 없고 요청이 하나씩 올 때 D_sign의 중앙값은 $R \cdot \max_{i \in S} rtt_i$에 scheme별 계산 시간을 더한 값이다. 요청마다 TCP 연결을 새로 맺으면 $R$ 대신 $2R$을 쓴다.
-- signer 집합 $S$의 응답을 모두 기다리는 구성에서, signer 링크의 방향별 loss율이 $p$일 때 서명이 재전송을 기다리게 될 확률은 $1 - (1 - p)^{2R|S|}$로 근사된다. 측정한 재전송 대기는 200 ms 안팎이었다.
+- loss가 없고 요청이 하나씩 올 때 D_sign의 중앙값은 $R \cdot \max_{i \in S} rtt_i$에 scheme별 계산 시간을 더한 값이다. 요청마다 연결을 새로 맺으면 $R$에 요청 하나의 왕복 수를 곱한다. 왕복 수는 TCP 2, TLS를 쓰는 TCP 3, QUIC 2, 0-RTT QUIC 1이다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 6.1절).
+- signer 집합 $S$의 응답을 모두 기다리는 구성에서, signer 링크의 방향별 loss율이 $p$일 때 서명이 재전송을 기다리게 될 확률은 $1 - (1 - p)^{2R|S|}$로 근사된다. 측정한 재전송 대기는 TCP에서 200 ms 안팎이었다.
 - signer $m$개에 요청하고 그중 $t$개의 응답으로 서명이 완성되는 구성(threshold RSA의 first, FROST의 hedge)에서는 이 확률이 $m$개 중 손실 없이 응답한 signer가 $t$개 미만일 확률로 바뀐다. 한 signer가 손실 없이 응답할 확률은 $(1 - p)^{2}$이다([results-phase3-hedging.md](results-phase3-hedging.md) 3.1절).
-- 위 두 항목의 "재전송을 기다리는" 시간은 연결에 뒤따르는 packet이 없을 때 약 200 ms다. 응답이 없는 signer의 연결에 ping을 보내면(nudge) 이 시간은 ping을 보낸 시점에 그 signer의 왕복 시간의 두 배쯤을 더한 값으로 줄어든다([results-phase3-adaptive.md](results-phase3-adaptive.md) 3절).
-- 요청이 동시에 오고 signer 링크에 loss가 있으면, 한 연결에 실린 요청들이 손실 하나를 함께 기다려 중앙값이 늘어난다. signer당 연결을 16개 이상 두면 동시 요청 100개에서 이 지연이 사라졌다. 연결을 늘릴 때는 nudge가 함께 필요하다([results-phase3-connections.md](results-phase3-connections.md)).
+- 위 두 항목의 "재전송을 기다리는" 시간은 연결에 뒤따르는 packet이 없을 때 signer의 RTT_s에 transport의 상수를 더한 값이다. 상수는 Linux TCP에서 206~213 ms, quic-go에서 27 ms였다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 4절). TCP에서 응답이 없는 signer의 연결에 ping을 보내면(nudge) 이 시간은 ping을 보낸 시점에 그 signer의 왕복 시간의 두 배쯤을 더한 값으로 줄어든다([results-phase3-adaptive.md](results-phase3-adaptive.md) 3절).
+- 요청이 동시에 오고 signer 링크에 loss가 있으면 한 연결에 몰린 요청의 중앙값이 늘어난다. 손실로 줄어든 congestion window가 전송을 늦추며, TCP에서는 연결 안의 전달 순서도 원인일 수 있다. 동시 요청 100개에서 이 지연은 TCP 연결 16개 이상, QUIC 연결 4개 이상에서 사라졌다. TCP에서는 연결을 늘릴 때 nudge가 함께 필요하다([results-phase3-connections.md](results-phase3-connections.md), [results-phase3-signer-transport.md](results-phase3-signer-transport.md) 5절).
+- 요청마다 연결을 새로 맺는 구성에서는 연결 수립 packet의 손실이 꼬리를 정한다. 대기는 TCP에서 약 1초, quic-go에서 약 200 ms였다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 6.2절).
 - 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다.
 
 ## 5. 최적화 문제

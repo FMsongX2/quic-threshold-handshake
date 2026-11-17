@@ -1,0 +1,5 @@
+scheme,t,n,policy,transport,signer_rtts_ms,signer_loss_pct,signatures,d_sign_p50,d_sign_p95,d_sign_p99,d_sign_max,rounds_p50,compute_p50,network_p50,local_p50,model_network_ms,nudged_share,hedge_fired_share,hedge_sessions_mean,shares_per_signature_mean,pool_miss_share,used_signers,exit_code,loadavg1_before,client_rtt_ms,handshakes,handshakes_ok,t_hs_p50,t_hs_p95,t_hs_p99,t_hs_minus_d_sign_p50
+frost-pre,3,5,fastest,quic16,50/5/100/1/20,0.0,5001,23.058,29.493,31.56,35.295,1,0.128,22.436,0.154,20.0,0.0,0.0,0.0,3.0,0.0,2:5001 4:5001 5:5001,0,2.98,20,5000,5000,48.897,57.073,59.617,25.839
+frost-pre,3,5,fastest,quic16,50/5/100/1/20,2.0,5001,23.534,36.596,51.01,121.492,1,0.164,22.723,0.164,20.0,0.0,0.0,0.0,3.0,0.0,2:5001 4:5001 5:5001,0,3.19,20,5000,5000,49.126,63.565,76.291,25.592
+frost-pre,3,5,fastest,quic,50/5/100/1/20,0.0,5001,24.878,32.273,37.801,44.866,1,0.127,24.244,0.164,20.0,0.0,0.0,0.0,3.0,0.0,2:5001 4:5001 5:5001,0,2.99,20,5000,5000,50.187,60.952,66.924,25.309
+frost-pre,3,5,fastest,quic,50/5/100/1/20,2.0,5001,36.948,74.583,88.342,123.104,1,0.124,36.061,0.15,20.0,0.0,0.0,0.0,3.0,0.0,2:5001 4:5001 5:5001,0,2.78,20,5000,5000,62.746,101.396,116.296,25.798

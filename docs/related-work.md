@@ -102,3 +102,5 @@ neqo와 kwik은 아직 확인하지 않았다.
 25. Go `crypto/tls`, `common.go`의 `Certificate.PrivateKey`. https://github.com/golang/go/blob/master/src/crypto/tls/common.go
 26. rustls 0.23.31, `rustls/src/crypto/signer.rs`. https://github.com/rustls/rustls/blob/v/0.23.31/rustls/src/crypto/signer.rs
 27. BoringSSL, `ssl/extensions.cc`의 `kVerifySignatureAlgorithms`. https://github.com/google/boringssl/blob/main/ssl/extensions.cc
+28. V. Paxson, M. Allman, J. Chu, M. Sargent, "Computing TCP's Retransmission Timer," RFC 6298, 2011. https://www.rfc-editor.org/rfc/rfc6298
+29. Linux kernel, `include/net/tcp.h`의 `TCP_RTO_MIN`, `TCP_TIMEOUT_INIT`, `TCP_TIMEOUT_FALLBACK`. https://github.com/torvalds/linux/blob/master/include/net/tcp.h

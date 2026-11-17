@@ -31,6 +31,7 @@ QUIC handshake에서 서버는 TLS 1.3 CertificateVerify 메시지에 인증서 
 | [docs/results-phase3-hedging.md](docs/results-phase3-hedging.md) | FROST에서 여러 signer 집합의 세션을 동시에 진행하는 hedge 정책의 효과와 비용 |
 | [docs/results-phase3-adaptive.md](docs/results-phase3-adaptive.md) | 필요할 때만 넓히는 지연 hedge, hedge 예산, signer 연결에 ping을 보내는 nudge의 측정 |
 | [docs/results-phase3-connections.md](docs/results-phase3-connections.md) | signer마다 연결을 여러 개 둘 때 loss와 부하가 함께 있는 조건의 지연 |
+| [docs/results-phase3-signer-transport.md](docs/results-phase3-signer-transport.md) | signer 연결에 TLS와 QUIC을 쓸 때의 손실 뒤 지연, 연결 수의 효과, 요청마다 연결을 맺는 비용 |
 | [docs/worklog.md](docs/worklog.md) | 날짜별 작업, 결정과 그 이유 |
 
 ## 실행
@@ -57,12 +58,13 @@ python3 harness/analyze_sign.py results/example-hs
 | `harness/cmd/server-quicgo` | quic-go 서버. 인증서 key는 서명 뒤 지정한 시간만큼 반환을 늦추는 local key이거나, 원격 signer에게서 서명을 받는 coordinator다. |
 | `harness/servers/aioquic` | aioquic 서버. 인증서 key의 `sign()`이 지정한 시간만큼 event loop를 멈춘다. |
 | `harness/servers/quiche` | Cloudflare quiche 서버. BoringSSL의 비동기 private key method로 지정한 시간 뒤에 서명을 완료한다. |
-| `harness/internal/tsig` | signer 서비스와 coordinator. FROST(Ed25519)와 Shoup threshold RSA, signer 선택 정책 fixed·fastest·first·hedge와 지연 hedge, hedge 예산, ping nudge, signer당 연결 여러 개를 지원한다. |
+| `harness/internal/tsig` | signer 서비스와 coordinator. FROST(Ed25519)와 Shoup threshold RSA, signer 선택 정책 fixed·fastest·first·hedge와 지연 hedge, hedge 예산, ping nudge를 지원한다. signer 연결은 TCP, TLS 1.3, QUIC 중에서 고르고, 유지하거나 요청마다 새로 맺는다. |
 | `harness/cmd/dealer`, `harness/cmd/signer`, `harness/cmd/signbench` | key share 생성, signer 실행, QUIC 없이 서명 지연을 재는 benchmark |
 | `harness/run.py`, `harness/analyze.py` | Phase 1 조건 격자 실행과 결과 집계 |
-| `harness/run_sign.py`, `harness/analyze_sign.py` | Phase 2 조건 격자 실행과 결과 집계 |
+| `harness/run_sign.py`, `harness/analyze_sign.py` | Phase 2와 Phase 3의 조건 격자 실행과 결과 집계 |
+| `harness/analyze_signer_qlog.py` | coordinator가 signer와 맺은 QUIC 연결의 qlog에서 요청의 전송 대기와 congestion window를 집계 |
 | `results/` | 측정 결과. 조건별 요약은 `summary.csv`, 서명·handshake별 기록은 gzip으로 압축한 `*.jsonl.gz`다. 집계 스크립트는 압축한 파일과 압축하지 않은 파일을 모두 읽는다. qlog 원본은 용량 때문에 저장소에 넣지 않는다. |
 
 ## 진행 상태
 
-Phase 1의 pilot 측정, Phase 2의 FROST·threshold RSA 측정, FROST hedge 정책, 적응형 hedge·ping nudge, signer 연결 수의 측정을 마쳤다. threshold ECDSA와 s2n-quic 서버는 아직 구현하지 않았고, Phase 3의 최적화 문제는 풀지 않았다. 날짜별 진행은 [docs/worklog.md](docs/worklog.md)에, 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 있다.
+Phase 1의 pilot 측정, Phase 2의 FROST·threshold RSA 측정, FROST hedge 정책, 적응형 hedge·ping nudge, signer 연결 수, signer 연결의 TLS·QUIC 측정을 마쳤다. threshold ECDSA와 s2n-quic 서버는 아직 구현하지 않았고, Phase 3의 최적화 문제는 풀지 않았다. 날짜별 진행은 [docs/worklog.md](docs/worklog.md)에, 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 있다.
