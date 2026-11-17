@@ -173,6 +173,9 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs_f64(total))
 }
 
+/// UDP payload size of the Initial datagrams, that of quic-go.
+const INITIAL_DATAGRAM_SIZE: u16 = 1280;
+
 struct Dialer {
     addr: SocketAddr,
     tls: Arc<ClientConfig>,
@@ -188,11 +191,19 @@ impl Dialer {
         let limits = Limits::new()
             .with_max_handshake_duration(self.timeout)
             .map_err(|e| e.to_string())?;
-        let bind = if self.addr.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+        // quic-go sends 1280-byte Initial datagrams; the same size gives the
+        // server the same anti-amplification budget as with the Go client.
+        let (bind, ip_udp_header) =
+            if self.addr.is_ipv4() { ("0.0.0.0:0", 28) } else { ("[::]:0", 48) };
+        let io = s2n_quic::provider::io::tokio::Builder::default()
+            .with_receive_address(bind.parse().unwrap())
+            .and_then(|b| b.with_initial_mtu(INITIAL_DATAGRAM_SIZE + ip_udp_header))
+            .and_then(|b| b.build())
+            .map_err(|e| e.to_string())?;
         Client::builder()
             .with_tls(tls)
             .map_err(|e| e.to_string())?
-            .with_io(bind)
+            .with_io(io)
             .map_err(|e| e.to_string())?
             .with_limits(limits)
             .map_err(|e| e.to_string())?

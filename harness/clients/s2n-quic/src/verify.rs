@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::{Resumption, WebPkiServerVerifier};
+use rustls::crypto::aws_lc_rs::kx_group;
 use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -63,9 +64,9 @@ impl ServerCertVerifier for CaVerifier {
 }
 
 /// Builds the TLS configuration shared by all connections: TLS 1.3 with the
-/// cipher suites of s2n-quic's rustls provider, the certificates in `ca_path`
-/// as trust anchors, and no session resumption, so that every connection
-/// performs a full handshake.
+/// cipher suites of s2n-quic's rustls provider, the key exchange groups of
+/// the Go client, the certificates in `ca_path` as trust anchors, and no
+/// session resumption, so that every connection performs a full handshake.
 pub fn client_config(ca_path: &str, alpn: &str) -> Result<Arc<ClientConfig>, String> {
     let trusted = CertificateDer::pem_file_iter(ca_path)
         .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
@@ -78,8 +79,24 @@ pub fn client_config(ca_path: &str, alpn: &str) -> Result<Arc<ClientConfig>, Str
 
     #[allow(deprecated)]
     let cipher_suites = s2n_quic::provider::tls::rustls::DEFAULT_CIPHERSUITES.to_vec();
-    let provider =
-        Arc::new(CryptoProvider { cipher_suites, ..rustls::crypto::aws_lc_rs::default_provider() });
+    // The key exchange groups of the Go client (Go 1.26 defaults) in its
+    // order, as far as aws-lc-rs provides them (it lacks SecP384r1MLKEM1024
+    // and P-521). rustls then sends key shares for X25519MLKEM768 and its
+    // X25519 component, as Go does, so servers that prefer ML-KEM answer
+    // without a HelloRetryRequest and both clients give the server the same
+    // anti-amplification budget.
+    let kx_groups = vec![
+        kx_group::X25519MLKEM768,
+        kx_group::SECP256R1MLKEM768,
+        kx_group::X25519,
+        kx_group::SECP256R1,
+        kx_group::SECP384R1,
+    ];
+    let provider = Arc::new(CryptoProvider {
+        cipher_suites,
+        kx_groups,
+        ..rustls::crypto::aws_lc_rs::default_provider()
+    });
     let chains = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone())
         .build()
         .map_err(|e| format!("{ca_path}: {e}"))?;
