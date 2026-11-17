@@ -139,7 +139,7 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | 항목 | 현재 가정 | 결정이 바꾸는 것 |
 | --- | --- | --- |
 | "하위 서버 간 핸드셰이크 지연시간"의 해석 | signer들이 서명에 협력하느라 생기는 지연이 client가 관측하는 QUIC handshake 시간에 주는 영향으로 해석했다. coordinator와 signer 사이 연결을 맺는 비용은 "signer 간 transport" 변인으로 포함했고, TCP·TLS·QUIC·0-RTT QUIC의 연결 수립 비용을 측정했다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 6절). | signer끼리 맺는 handshake 자체가 주 측정 대상이라면 T_hs의 정의와 RQ3이 바뀐다. |
-| 산출물의 형태와 마감 | 정해지지 않았다. | 구현체 수와 실험 격자의 크기를 정한다. |
+| 산출물의 형태와 마감 | 빅데이터처리 과목의 term project이며 14주차에 5분 발표와 5분 질의응답을 한다. 보고서 제출 여부는 확인하지 못했다. | 구현체 수와 실험 격자의 크기를 정한다. |
 | 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
 | signature scheme의 우선순위 | FROST와 Shoup threshold RSA를 구현해 측정했다. threshold ECDSA는 아직 구현하지 않았다. | 공개 WebPKI에 적용 가능한 scheme이 threshold RSA 하나로 남는지가 달라진다. |
 | hedge 구성의 안전성 | FROST가 동시 세션에서 안전하다는 성질에 기대며, 따로 검토받지 않았다. | 결과를 실제 배치에 대한 권고로 쓸 수 있는지가 달라진다. |

@@ -243,6 +243,41 @@ signer 연결을 여러 개 두는 것은 요청마다 전달 순서를 독립�
 - 서명 하나가 실패하면 benchmark가 그 자리에서 끝나던 것을, 실패를 기록하고 계속하도록 바꿨다. 종료 상태는 여전히 실패를 알린다. 드문 실패 하나가 조건 전체의 측정을 버리게 하지 않기 위해서다.
 - qlog 파일의 마지막 기록은 container를 지울 때 잘린다. 집계 스크립트는 잘린 기록을 건너뛴다. qlog 원본은 저장소에 넣지 않았다.
 
+## 2026-11-18
+
+### 남은 결과를 모두 내기 위한 계획
+
+이 연구는 빅데이터처리 과목의 term project다. 과목이 안내한 프로젝트의 흐름은 "문제, 필요한 것, 설계, 실험, 결과"이고, 실험은 주장마다 하나씩 두며 data 크기와 worker 수를 바꿔 보라고 했다. 발표는 14주차에 5분 발표와 5분 질의응답으로 진행된다. [experiment-design.md](experiment-design.md)의 Phase 0~3에서 남은 항목을 아래 순서로 끝낸다.
+
+| 묶음 | 내용 | 필요한 구현 |
+| --- | --- | --- |
+| 측정 batch 1 | Phase 1의 남은 조건(RTT_c 1·100 ms, client 링크 loss, 서버별 handshake 처리율), 실제 signer의 네트워크·시스템 격자, QUIC 연결 수, signer 장애와 RTT_s 변화, signer 처리율, jitter | 실행 스크립트의 option 추가 |
+| 구현 | coordinator를 daemon으로 분리해 aioquic·quiche 서버에 실제 signer를 붙인다. s2n-quic 서버와 두 번째 client를 만든다. threshold ECDSA를 붙인다. | 세 갈래로 나누어 동시에 진행 |
+| 측정 batch 2 | 구현체별 실제 signer handshake, s2n-quic과 두 번째 client, threshold ECDSA | 위 구현 |
+| Phase 3 | 모델 적합, 예측, 세 region 배치의 전수 측정, Pareto frontier, 가설 H4 판정 | 집계 스크립트 |
+
+- 실행 스크립트에 넣은 것: 정해진 rate로 handshake를 시작하는 부하(완료 여부와 무관하게 시작한다), client 링크의 loss, signer당 CPU 수, signer 링크의 jitter, client가 도는 동안 signer를 죽이거나 멈추거나 RTT_s를 바꾸는 event.
+- signer에 CPU를 배정하는 순서에서 CPU 9번을 뺐다. 실험과 무관한 프로세스가 이 CPU를 계속 쓰고 있다. signer 5개 이하의 배정은 이전과 같다. CPU 9번은 signer 2가 쓰는 CPU 1번과 같은 물리 core의 thread여서, 지금까지의 측정에서 signer 2의 계산 시간에는 이 영향이 들어 있다.
+- host의 logical CPU i와 i+8은 같은 물리 core다. front server에 "CPU 4개"를 주는 조건은 물리 core 2개의 thread 4개(4, 5, 12, 13번)다. 물리 core 4개를 따로 줄 여유가 host에 없다.
+- batch 1은 측정 중에 code가 바뀌지 않도록 commit `afc2b0b`를 따로 checkout한 directory에서 실행한다. 명령은 `harness/campaigns/batch1.sh`에 있다.
+- signer 복제본을 두는 조건은 측정하지 않기로 했다. FROST signer는 nonce 상태를 process 안에 두므로 복제본 사이에 commitment를 공유하는 설계가 따로 필요하다.
+
+### batch 1의 예측
+
+batch를 시작한 직후, 결과를 보기 전에 적었다. signer 배치는 번호 순서대로 RTT_s 50, 5, 100, 1, 20 ms다.
+
+1. QUIC 연결 수. 손실로 줄어든 congestion window가 loss 2%에서 약 12 packet이었고 요청 100개가 packet 약 52개에 실렸다. 연결 하나에 실리는 packet 수가 window 이하가 되는 연결 수는 동시 handshake 30개에서 2개, 100개에서 4~5개, 300개에서 13개쯤이다. 따라서 30개에서는 연결 2개로 중앙값이 돌아오고, 300개에서는 연결 8개로도 돌아오지 않는다. window가 loss율의 제곱근에 반비례한다고 보면 동시 100개에서 loss 1%는 연결 3개, loss 5%는 연결 8개가 필요하다. RTT_s가 모두 50 ms이면 연결 하나일 때의 증가량이 20 ms일 때의 2배를 넘는다.
+2. front server의 CPU. 동시 handshake 100개에서 T_hs에서 D_sign과 RTT_c를 뺀 값은 CPU가 1개일 때 2개일 때의 약 2배다. 수치 예측은 하지 않는다.
+3. signer 처리율. threshold RSA의 share 계산은 약 4 ms이므로 CPU 1개인 signer는 초당 약 250개에서 포화한다. 그보다 높은 rate에서는 T_hs가 시간에 따라 계속 늘어난다. CPU 2개이면 포화점이 약 2배가 된다. FROST signer는 측정 범위(초당 1,600개)에서 포화하지 않는다.
+4. signer를 죽일 때. TCP에서는 연결이 끊긴 것을 바로 알므로 fixed와 fastest의 handshake가 곧바로 실패한다. fastest는 RTT 추정을 표본이 있을 때만 고치므로 죽은 signer를 계속 고르고, 이후의 handshake가 모두 실패한다. hedge와 first는 남은 signer로 계속 성공하며 D_sign은 다음으로 가까운 signer의 RTT_s(50 ms) 수준이 된다. QUIC에서는 죽은 signer가 아무 신호도 보내지 않으므로 fixed와 fastest의 handshake가 서명 제한 시간 15초를 기다린 뒤 실패한다.
+5. signer를 멈출 때(응답만 없음). 두 transport 모두 4번의 QUIC 경우와 같다.
+6. signer의 RTT_s가 5 ms에서 200 ms로 바뀔 때. fastest는 RTT 추정의 시간 창 두 개(각 5초)가 지나면 그 signer를 빼므로 5~10초 동안 T_hs가 약 200 ms 늘었다가 돌아온다. fixed는 끝까지 늘어난 채로 남는다. hedge는 영향을 받지 않는다.
+7. 네트워크 격자. handshake를 하나씩 할 때 T_hs 중앙값에서 D_sign 중앙값을 뺀 값은 RTT_c마다 일정하며 RTT_c에 약 1 ms를 더한 값이다.
+8. client 링크의 loss. quic-go 서버는 서명이 끝날 때까지 응답하지 않으므로 client의 RTT 표본에 D_sign이 들어간다. 손실된 handshake packet의 복구가 그만큼 늦어져, T_hs의 p95는 D_sign이 클수록 "loss가 없을 때의 값 + D_sign"보다 더 많이 늘어난다. 서명을 기다리는 동안 먼저 응답하는 quiche에서는 이 증가가 작다.
+9. 서버별 handshake 처리율(서명 지연 주입). aioquic은 "1 / (서명 지연 + handshake 처리 시간)"에서 포화한다. 지연 5 ms에서 초당 약 110개, 20 ms에서 약 45개다. quic-go와 quiche의 포화점은 서명 지연과 무관하다.
+10. RTT_c 1 ms와 100 ms. 단일 handshake의 T_hs는 20 ms일 때와 같이 주입 지연만큼만 늘어난다.
+11. jitter. D_sign 중앙값은 변하지 않고 p95가 가장 먼 signer의 jitter 표준편차의 2배쯤 늘어난다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
