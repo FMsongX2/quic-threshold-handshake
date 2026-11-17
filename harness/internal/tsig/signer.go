@@ -132,6 +132,9 @@ func NewSigner(share *Share) (*Signer, error) {
 			}
 			return nil, errUnsupportedOp(op)
 		}}, nil
+
+	case SchemeECDSA:
+		return newECDSASigner(share)
 	}
 	return nil, fmt.Errorf("tsig: unknown scheme %q", share.Scheme)
 }

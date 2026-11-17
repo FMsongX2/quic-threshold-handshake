@@ -29,7 +29,7 @@ func main() {
 	nudgeDelay := flag.Float64("nudge-delay-factor", 0, "ping signers still silent after this multiple of the expected round trip; 0 disables")
 	transport := flag.String("transport", tsig.TransportPersistent, "persistent, per-request, tls, tls-per-request, quic, quic-per-request or quic-0rtt")
 	conns := flag.Int("signer-conns", 1, "connections per signer of a persistent transport")
-	precompute := flag.Bool("precompute", false, "collect FROST commitments ahead of time")
+	precompute := flag.Bool("precompute", false, "collect FROST commitments or ECDSA presignatures ahead of time")
 	qlogDir := flag.String("signer-qlog", "", "existing directory for qlog files of the QUIC signer connections")
 	n := flag.Int("n", 200, "number of measured signatures")
 	warmup := flag.Int("warmup", 5, "signatures made before measuring")

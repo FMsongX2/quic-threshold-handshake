@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	scheme := flag.String("scheme", tsig.SchemeFrost, "frost, rsa, plain-ed25519 or plain-rsa")
+	scheme := flag.String("scheme", tsig.SchemeFrost, "frost, ecdsa, rsa, plain-ed25519 or plain-rsa")
 	threshold := flag.Int("t", 2, "shares needed for a signature")
 	signers := flag.Int("n", 3, "number of signers")
 	out := flag.String("out", "", "output directory")

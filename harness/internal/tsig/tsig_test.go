@@ -3,13 +3,47 @@ package tsig
 import (
 	"context"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
+	"errors"
 	"net"
+	"sync"
 	"testing"
 )
+
+// ecdsaDeals caches ECDSA deals by threshold and signer count: each deal
+// generates Paillier keys from safe primes, which takes tens of seconds.
+var (
+	ecdsaDealsMu sync.Mutex
+	ecdsaDeals   = map[[2]int]dealt{}
+)
+
+type dealt struct {
+	pub    *Public
+	shares []*Share
+}
+
+func deal(t *testing.T, scheme string, threshold, signers int) (*Public, []*Share) {
+	t.Helper()
+	if scheme == SchemeECDSA {
+		ecdsaDealsMu.Lock()
+		defer ecdsaDealsMu.Unlock()
+		if d, ok := ecdsaDeals[[2]int{threshold, signers}]; ok {
+			return d.pub, d.shares
+		}
+	}
+	pub, shares, _, err := Deal(scheme, threshold, signers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheme == SchemeECDSA {
+		ecdsaDeals[[2]int{threshold, signers}] = dealt{pub, shares}
+	}
+	return pub, shares
+}
 
 // startSigners deals a key and runs one signer per share on loopback, over
 // plain TCP.
@@ -21,10 +55,7 @@ func startSigners(t *testing.T, scheme string, threshold, signers int) (*Public,
 // startSignersOn is startSigners with the listener transport needs.
 func startSignersOn(t *testing.T, transport, scheme string, threshold, signers int) (*Public, []string) {
 	t.Helper()
-	pub, shares, _, err := Deal(scheme, threshold, signers)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pub, shares := deal(t, scheme, threshold, signers)
 	tlsConf, err := NewSignerTLS()
 	if err != nil {
 		t.Fatal(err)
@@ -131,9 +162,20 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 		{SchemeFrost, 2, 5, Options{Policy: PolicyHedge, Transport: TransportQUIC, Conns: 2}},
 		{SchemeRSA, 3, 5, Options{Policy: PolicyFirst, Transport: TransportQUICPerRequest}},
 		{SchemeFrost, 2, 3, Options{Transport: TransportQUIC0RTT}},
+		{SchemeECDSA, 2, 3, Options{}},
+		{SchemeECDSA, 2, 3, Options{Precompute: true}},
+		{SchemeECDSA, 2, 3, Options{Transport: TransportQUIC}},
+		{SchemeECDSA, 2, 3, Options{Policy: PolicyFastest, Transport: TransportQUIC, Precompute: true}},
+		{SchemeECDSA, 3, 5, Options{Policy: PolicyFastest}},
+		{SchemeECDSA, 3, 5, Options{Precompute: true}},
+		{SchemeECDSA, 3, 5, Options{Transport: TransportQUIC}},
+		{SchemeECDSA, 3, 5, Options{Transport: TransportQUIC, Precompute: true}},
 	}
 	for _, tc := range cases {
 		name := tc.scheme + "/" + tc.opts.Policy + "/" + tc.opts.Transport
+		if tc.opts.Precompute {
+			name += "/precompute"
+		}
 		t.Run(name, func(t *testing.T) {
 			pub, addrs := startSignersOn(t, tc.opts.Transport, tc.scheme, tc.threshold, tc.signers)
 			coordinator, err := NewCoordinator(pub, addrs, tc.opts)
@@ -143,8 +185,18 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 			message := []byte("TLS 1.3, server CertificateVerify")
 			digest := sha256.Sum256(message)
 
-			// More signatures than one precomputed batch holds.
-			for range commitBatchSize + 8 {
+			// More signatures than one precomputed batch holds, or than
+			// half an ECDSA presignature pool, which starts a refill. An
+			// ECDSA signature without a pool runs every round, so a few
+			// of them suffice.
+			count := commitBatchSize + 8
+			switch {
+			case tc.scheme == SchemeECDSA && tc.opts.Precompute:
+				count = ecdsaPoolSize/2 + 2
+			case tc.scheme == SchemeECDSA:
+				count = 4
+			}
+			for range count {
 				switch public := coordinator.Public().(type) {
 				case ed25519.PublicKey:
 					signature, err := coordinator.Sign(nil, message, crypto.Hash(0))
@@ -162,9 +214,45 @@ func TestSignaturesVerifyWithStandardLibrary(t *testing.T) {
 					if err := rsa.VerifyPSS(public, crypto.SHA256, digest[:], signature, pssOptions); err != nil {
 						t.Fatal(err)
 					}
+				case *ecdsa.PublicKey:
+					signature, err := coordinator.Sign(nil, digest[:], crypto.SHA256)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !ecdsa.VerifyASN1(public, digest[:], signature) {
+						t.Fatal("ECDSA signature rejected")
+					}
 				}
 			}
 		})
+	}
+}
+
+// ECDSA sessions keep per-session state on every signer, so signatures that
+// overlap must not disturb each other.
+func TestECDSAConcurrentSignatures(t *testing.T) {
+	pub, addrs := startSigners(t, SchemeECDSA, 2, 3)
+	coordinator, err := NewCoordinator(pub, addrs, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := coordinator.Public().(*ecdsa.PublicKey)
+	const parallel = 24
+	errs := make(chan error, parallel)
+	for i := range parallel {
+		go func() {
+			digest := sha256.Sum256([]byte{byte(i)})
+			signature, err := coordinator.Sign(nil, digest[:], crypto.SHA256)
+			if err == nil && !ecdsa.VerifyASN1(public, digest[:], signature) {
+				err = errors.New("ECDSA signature rejected")
+			}
+			errs <- err
+		}()
+	}
+	for range parallel {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
 	}
 }
 
