@@ -53,6 +53,9 @@ def summarize(cell: Path) -> dict:
     meta = json.loads((cell / "meta.json").read_text())
     handshake = any((cell / name).exists() for name in ("client.jsonl", "client.jsonl.gz"))
     traces = load_traces(cell / ("server-trace.jsonl" if handshake else "sign.jsonl"))
+    # A signature that failed has no rounds; it is counted, not summarized.
+    failed = [t for t in traces if "error" in t]
+    traces = [t for t in traces if "error" not in t]
     parts = [decompose(t) for t in traces]
 
     def p(key: str, q: float):
@@ -94,6 +97,8 @@ def summarize(cell: Path) -> dict:
         "exit_code": meta["exit_code"],
         "loadavg1_before": round(meta["loadavg_before"][0], 2),
     }
+    if failed:
+        row["signatures_failed"] = len(failed)
     if meta["transport"] == "quic-0rtt":
         calls = [call for t in traces for r in t["rounds"] for call in r["calls"]]
         row["early_data_share"] = round(sum(1 for call in calls if call.get("early_data")) / len(calls), 3) if calls else ""

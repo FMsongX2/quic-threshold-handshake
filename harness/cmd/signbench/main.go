@@ -59,15 +59,29 @@ func main() {
 		size = ed25519MessageSize
 	}
 	input := make([]byte, size)
+	failed := 0
 	for i := range *warmup + *n {
 		rand.Read(input)
+		start := time.Now()
 		_, trace, err := coordinator.SignTraced(context.Background(), input)
-		if err != nil {
-			log.Fatalf("signature %d: %v", i, err)
-		}
-		if i >= *warmup {
+		switch {
+		case err != nil:
+			// A failed signature is recorded and the run goes on, so that a
+			// rare failure under loss does not hide the rest of the cell.
+			failed++
+			log.Printf("signature %d: %v", i, err)
+			if i >= *warmup {
+				enc.Encode(map[string]any{
+					"error": err.Error(), "start_unix_ns": start.UnixNano(), "total_ns": time.Since(start).Nanoseconds(),
+				})
+			}
+		case i >= *warmup:
 			enc.Encode(trace)
 		}
 		time.Sleep(*gap)
+	}
+	if failed > 0 {
+		out.Close()
+		log.Fatalf("%d signatures failed", failed)
 	}
 }
