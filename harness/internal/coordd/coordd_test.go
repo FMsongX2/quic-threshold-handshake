@@ -74,3 +74,55 @@ func TestClientServer(t *testing.T) {
 		})
 	}
 }
+
+// The digest listener must produce the same kind of signature a TLS client
+// verifies, and must refuse a key that cannot sign a digest.
+func TestDigestListener(t *testing.T) {
+	_, edKey, _ := ed25519.GenerateKey(rand.Reader)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("message"))
+	ask := func(key crypto.Signer) ([]byte, error) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+		go ServeDigests(ln, key)
+		conn, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if err := writeRequest(conn, 7, digest[:]); err != nil {
+			t.Fatal(err)
+		}
+		body, err := readFrame(conn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, signature, err := parseResponse(body)
+		if id != 7 {
+			t.Fatalf("response for request %d, want 7", id)
+		}
+		return signature, err
+	}
+
+	signature, err := ask(rsaKey)
+	if err != nil || rsa.VerifyPSS(&rsaKey.PublicKey, crypto.SHA256, digest[:], signature, pssOptions) != nil {
+		t.Errorf("RSA digest signature rejected: %v", err)
+	}
+	signature, err = ask(ecKey)
+	if err != nil || !ecdsa.VerifyASN1(&ecKey.PublicKey, digest[:], signature) {
+		t.Errorf("ECDSA digest signature rejected: %v", err)
+	}
+	if _, err := ask(edKey); err == nil {
+		t.Error("Ed25519 key signed a digest")
+	}
+}

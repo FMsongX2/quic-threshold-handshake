@@ -12,7 +12,8 @@ import (
 )
 
 func main() {
-	listen := flag.String("listen", coordd.DefaultAddr, "TCP listen address")
+	listen := flag.String("listen", coordd.DefaultAddr, "TCP listen address for requests that carry the signing input")
+	digestListen := flag.String("digest-listen", "", "TCP listen address for requests that carry its SHA-256 digest; empty disables it")
 	coordFlags := coordd.RegisterCoordinatorFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -24,7 +25,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("ready listen=%s signers=%s policy=%s transport=%s",
-		ln.Addr(), coordFlags.Signers, coordFlags.Options.Policy, coordFlags.Options.Transport)
+	if *digestListen != "" {
+		digests, err := net.Listen("tcp", *digestListen)
+		if err != nil {
+			log.Fatal(err)
+		}
+		go func() { log.Fatal(coordd.ServeDigests(digests, coordinator)) }()
+	}
+	log.Printf("ready listen=%s digest_listen=%s signers=%s policy=%s transport=%s",
+		ln.Addr(), *digestListen, coordFlags.Signers, coordFlags.Options.Policy, coordFlags.Options.Transport)
 	log.Fatal(coordd.Serve(ln, coordinator))
 }
