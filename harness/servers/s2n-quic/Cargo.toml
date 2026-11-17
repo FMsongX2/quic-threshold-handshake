@@ -17,6 +17,9 @@ s2n-quic = { version = "=1.92.0", default-features = false, features = [
     "provider-tls-rustls",
     "unstable-offload-tls",
 ] }
+# The TLS provider traits, for the session wrapper in rearm.rs; versions as in s2n-quic.
+s2n-codec = { version = "=0.92.0", default-features = false }
+s2n-quic-core = { version = "=0.92.0", default-features = false, features = ["alloc"] }
 # The rustls that s2n-quic-rustls uses; s2n-quic deprecates its re-export.
 rustls = { version = "0.23", default-features = false, features = ["std"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

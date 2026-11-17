@@ -390,7 +390,9 @@ version = "0.1.0"
 dependencies = [
  "aws-lc-rs",
  "rustls",
+ "s2n-codec",
  "s2n-quic",
+ "s2n-quic-core",
  "tokio",
 ]
 

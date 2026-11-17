@@ -1,164 +1,41 @@
-//! Daemon mode: the certificate key lives behind the qth-coordd signing daemon.
+//! Daemon mode over rustls, used for Ed25519 certificates and for RSA and
+//! P-256 certificates without a digest listener.
 //!
-//! s2n-tls passes its private key callback only the SHA-256 digest of the
-//! CertificateVerify input, while the daemon protocol carries the unhashed
-//! input (Ed25519 cannot sign a digest at all). This mode therefore uses the
-//! rustls provider, whose signer receives the unhashed input. rustls signs
-//! synchronously, so the TLS offload provider runs each connection's TLS
-//! session on its own thread: a pending signature blocks only that thread,
-//! and the QUIC endpoint keeps serving every other connection.
+//! The daemon's message listener expects the unhashed CertificateVerify
+//! input, which rustls hands to its signer (s2n-tls only exposes the digest,
+//! see digest.rs). rustls signs synchronously, so the TLS offload provider
+//! runs each connection's TLS session on its own thread: a pending signature
+//! blocks only that thread, and the QUIC endpoint keeps serving every other
+//! connection.
 
-use std::collections::HashMap;
-use std::fmt;
 use std::future::Future;
-use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
 
-use s2n_quic::provider::tls::offload::{Executor, Offload, OffloadBuilder};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use rustls::sign::{CertifiedKey, Signer, SigningKey, SingleCertAndKey};
 use rustls::{SignatureAlgorithm, SignatureScheme};
+use s2n_quic::provider::tls::offload::{Executor, Offload, OffloadBuilder};
 
-/// Longest a handshake thread waits for one signature before failing it.
-const SIGN_TIMEOUT: Duration = Duration::from_secs(30);
-/// Bound on a response frame, far above any signature the daemon returns.
-const MAX_FRAME: usize = 1 << 20;
+use crate::daemon::Daemon;
+use crate::rearm::Rearm;
 
-type Reply = mpsc::Sender<Result<Vec<u8>, String>>;
-
-/// Client of the signing daemon. All handshakes share one TCP connection and
-/// keep their requests in flight concurrently; a broken connection fails its
-/// pending requests and is replaced by the next request.
-pub struct Daemon {
-    addr: String,
-    next_id: AtomicU64,
-    link: Mutex<Option<Arc<Link>>>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyType {
+    Ed25519,
+    Rsa,
+    P256,
 }
 
-struct Link {
-    writer: Mutex<TcpStream>,
-    /// Waiting requests by id; `None` once the connection has failed.
-    pending: Mutex<Option<HashMap<u64, Reply>>>,
-}
-
-impl fmt::Debug for Daemon {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Daemon").field("addr", &self.addr).finish()
-    }
-}
-
-impl Daemon {
-    /// Connects at once so that an unreachable daemon stops the server at startup.
-    pub fn connect(addr: &str) -> Result<Arc<Self>, String> {
-        let daemon =
-            Arc::new(Self { addr: addr.into(), next_id: AtomicU64::new(0), link: Mutex::new(None) });
-        daemon.link()?;
-        Ok(daemon)
-    }
-
-    fn link(&self) -> Result<Arc<Link>, String> {
-        let mut slot = self.link.lock().unwrap();
-        if let Some(link) = slot.as_ref().filter(|link| link.is_open()) {
-            return Ok(link.clone());
+impl KeyType {
+    /// The TLS signature scheme of the daemon contract for this key type.
+    fn scheme(self) -> (SignatureScheme, SignatureAlgorithm) {
+        match self {
+            KeyType::Ed25519 => (SignatureScheme::ED25519, SignatureAlgorithm::ED25519),
+            KeyType::Rsa => (SignatureScheme::RSA_PSS_SHA256, SignatureAlgorithm::RSA),
+            KeyType::P256 => (SignatureScheme::ECDSA_NISTP256_SHA256, SignatureAlgorithm::ECDSA),
         }
-        let stream =
-            TcpStream::connect(&self.addr).map_err(|e| format!("connect {}: {e}", self.addr))?;
-        stream.set_nodelay(true).map_err(|e| e.to_string())?;
-        let reader = stream.try_clone().map_err(|e| e.to_string())?;
-        let link = Arc::new(Link {
-            writer: Mutex::new(stream),
-            pending: Mutex::new(Some(HashMap::new())),
-        });
-        let receiver = link.clone();
-        std::thread::spawn(move || receiver.read_responses(reader));
-        *slot = Some(link.clone());
-        Ok(link)
     }
-
-    /// Returns the daemon's signature over `message`, the unhashed
-    /// CertificateVerify input.
-    pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, String> {
-        let link = self.link()?;
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (reply, response) = mpsc::channel();
-        link.pending
-            .lock()
-            .unwrap()
-            .as_mut()
-            .ok_or("daemon connection closed")?
-            .insert(id, reply);
-
-        let body_len = u32::try_from(8 + message.len()).map_err(|_| "message too long")?;
-        let mut frame = Vec::with_capacity(12 + message.len());
-        frame.extend_from_slice(&body_len.to_be_bytes());
-        frame.extend_from_slice(&id.to_be_bytes());
-        frame.extend_from_slice(message);
-        let written = link.writer.lock().unwrap().write_all(&frame);
-        if let Err(e) = written {
-            link.fail(&format!("daemon write: {e}"));
-        }
-
-        let result = response.recv_timeout(SIGN_TIMEOUT);
-        if result.is_err() {
-            if let Some(pending) = link.pending.lock().unwrap().as_mut() {
-                pending.remove(&id);
-            }
-        }
-        result.map_err(|_| format!("no daemon response within {SIGN_TIMEOUT:?}"))?
-    }
-}
-
-impl Link {
-    fn is_open(&self) -> bool {
-        self.pending.lock().unwrap().is_some()
-    }
-
-    fn read_responses(&self, mut stream: TcpStream) {
-        let error = loop {
-            match read_response(&mut stream) {
-                Ok((id, result)) => {
-                    let reply = self.pending.lock().unwrap().as_mut().and_then(|p| p.remove(&id));
-                    if let Some(reply) = reply {
-                        let _ = reply.send(result);
-                    }
-                },
-                Err(e) => break e,
-            }
-        };
-        self.fail(&format!("daemon connection: {error}"));
-    }
-
-    fn fail(&self, reason: &str) {
-        let pending = self.pending.lock().unwrap().take();
-        for reply in pending.into_iter().flat_map(HashMap::into_values) {
-            let _ = reply.send(Err(reason.into()));
-        }
-        // Wakes the reader thread when the failure was seen by a writer.
-        let _ = self.writer.lock().unwrap().shutdown(Shutdown::Both);
-    }
-}
-
-fn read_response(stream: &mut TcpStream) -> Result<(u64, Result<Vec<u8>, String>), String> {
-    let mut len = [0; 4];
-    stream.read_exact(&mut len).map_err(|e| e.to_string())?;
-    let len = u32::from_be_bytes(len) as usize;
-    if !(9..=MAX_FRAME).contains(&len) {
-        return Err(format!("invalid response length {len}"));
-    }
-    let mut body = vec![0; len];
-    stream.read_exact(&mut body).map_err(|e| e.to_string())?;
-    let id = u64::from_be_bytes(body[..8].try_into().unwrap());
-    let payload = body[9..].to_vec();
-    let result = match body[8] {
-        0 => Ok(payload),
-        1 => Err(format!("daemon: {}", String::from_utf8_lossy(&payload))),
-        status => Err(format!("daemon returned unknown status {status}")),
-    };
-    Ok((id, result))
 }
 
 #[derive(Debug)]
@@ -212,16 +89,15 @@ impl Executor for ThreadPerSession {
     }
 }
 
-pub type Provider = Offload<s2n_quic::provider::tls::rustls::Server, ThreadPerSession, ()>;
+pub type Provider =
+    Rearm<Offload<s2n_quic::provider::tls::rustls::Server, ThreadPerSession, ()>>;
 
-/// Builds a TLS provider that presents the certificate chain in `cert_path`
-/// and has the daemon at `daemon_addr` sign with its key.
-pub fn tls_provider(cert_path: &str, daemon_addr: &str, alpn: &str) -> Result<Provider, String> {
-    let chain = CertificateDer::pem_file_iter(cert_path)
-        .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
-        .map_err(|e| format!("read {cert_path}: {e}"))?;
-    let leaf = chain.first().ok_or_else(|| format!("no certificate in {cert_path}"))?;
-    let (scheme, algorithm) = signature_scheme(leaf)?;
+/// Builds a TLS provider that presents `chain` and has the daemon's message
+/// listener at `daemon_addr` sign with its key.
+pub fn tls_provider(
+    chain: Vec<CertificateDer<'static>>, key_type: KeyType, daemon_addr: &str, alpn: &str,
+) -> Result<Provider, String> {
+    let (scheme, algorithm) = key_type.scheme();
     let key = DaemonKey { daemon: Daemon::connect(daemon_addr)?, scheme, algorithm };
     let certified = CertifiedKey::new(chain, Arc::new(key));
 
@@ -232,10 +108,22 @@ pub fn tls_provider(cert_path: &str, daemon_addr: &str, alpn: &str) -> Result<Pr
         .and_then(|b| b.with_application_protocols([alpn].iter()))
         .and_then(|b| b.build())
         .map_err(|e| format!("rustls server: {e}"))?;
-    Ok(OffloadBuilder::new()
-        .with_endpoint(server)
-        .with_executor(ThreadPerSession(tokio::runtime::Handle::current()))
-        .build())
+    Ok(Rearm(
+        OffloadBuilder::new()
+            .with_endpoint(server)
+            .with_executor(ThreadPerSession(tokio::runtime::Handle::current()))
+            .build(),
+    ))
+}
+
+/// Reads the certificate chain in `path` and the key type of its leaf.
+pub fn load_chain(path: &str) -> Result<(Vec<CertificateDer<'static>>, KeyType), String> {
+    let chain = CertificateDer::pem_file_iter(path)
+        .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
+        .map_err(|e| format!("read {path}: {e}"))?;
+    let leaf = chain.first().ok_or_else(|| format!("no certificate in {path}"))?;
+    let key_type = key_type(leaf)?;
+    Ok((chain, key_type))
 }
 
 const OID_ED25519: &[u8] = &[0x2b, 0x65, 0x70];
@@ -243,16 +131,13 @@ const OID_RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
 const OID_EC: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
 const OID_P256: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
 
-/// Picks the TLS signature scheme of the contract for the certificate's key.
-fn signature_scheme(cert: &[u8]) -> Result<(SignatureScheme, SignatureAlgorithm), String> {
+fn key_type(cert: &[u8]) -> Result<KeyType, String> {
     let (oid, params) =
         spki_algorithm(cert).ok_or("cannot parse the certificate's public key algorithm")?;
     match oid {
-        OID_ED25519 => Ok((SignatureScheme::ED25519, SignatureAlgorithm::ED25519)),
-        OID_RSA => Ok((SignatureScheme::RSA_PSS_SHA256, SignatureAlgorithm::RSA)),
-        OID_EC if matches!(der(params), Some((0x06, OID_P256, _))) => {
-            Ok((SignatureScheme::ECDSA_NISTP256_SHA256, SignatureAlgorithm::ECDSA))
-        },
+        OID_ED25519 => Ok(KeyType::Ed25519),
+        OID_RSA => Ok(KeyType::Rsa),
+        OID_EC if matches!(der(params), Some((0x06, OID_P256, _))) => Ok(KeyType::P256),
         _ => Err("certificate key is not Ed25519, RSA or P-256".into()),
     }
 }
