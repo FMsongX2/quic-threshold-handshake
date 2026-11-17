@@ -14,6 +14,10 @@
 // ecdsa_secp256r1_sha256 (ASN.1 DER). On error it is UTF-8 error text.
 // Several requests may be in flight on one connection; responses arrive in
 // completion order.
+//
+// A second listener takes the SHA-256 digest of that input in place of the
+// message, for TLS stacks whose asynchronous key hook hands out only the
+// digest. It serves RSA and P-256 keys.
 package coordd
 
 import (
