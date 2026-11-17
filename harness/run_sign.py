@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from run import CLIENT_IMAGE, HARNESS, NETWORK, SERVER_IP, SUBNET, build_images, docker_quiet, sh
+from run import CLIENT_IMAGE, CLIENTS, HARNESS, NETWORK, SERVER_IP, SUBNET, build_images, docker_quiet, sh
 
 SIGNER_NETWORK = "qth-sig"
 SIGNER_SUBNET = "10.89.1.0/24"
@@ -52,10 +52,8 @@ SERVERS = {
         ["python3", "/opt/qth/server.py", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR],
     ),
     "quiche": ("qth-quiche", "quiche.Dockerfile", ["qth-server-quiche", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR]),
+    "s2n-quic": ("qth-s2n", "s2n-quic.Dockerfile", ["qth-server-s2n", "--cert", "/keys/cert.pem", "--coordd", DAEMON_ADDR]),
 }
-# Clients of handshake mode: name -> (image, Dockerfile, program). Every
-# program takes the flags of qth-client and writes the same records.
-CLIENTS = {"quic-go": ("qth-go", "go.Dockerfile", "qth-client")}
 
 
 def signer_name(i: int) -> str:
@@ -384,11 +382,11 @@ def main() -> None:
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
-    images = build_images([])
-    for image, dockerfile, _ in (SERVERS[args.server], CLIENTS[args.client]):
-        if image not in images:
-            sh("docker", "build", "-q", "-t", image, "-f", str(HARNESS / "docker" / dockerfile), str(HARNESS))
-            images[image] = sh("docker", "image", "inspect", "-f", "{{.Id}}", image, capture=True).strip()
+    images = build_images([], args.client)
+    server_image, server_dockerfile, _ = SERVERS[args.server]
+    if server_image not in images:
+        sh("docker", "build", "-q", "-t", server_image, "-f", str(HARNESS / "docker" / server_dockerfile), str(HARNESS))
+        images[server_image] = sh("docker", "image", "inspect", "-f", "{{.Id}}", server_image, capture=True).strip()
     docker_quiet("network", "create", "--subnet", SIGNER_SUBNET, SIGNER_NETWORK)
     if args.mode == "handshake":
         docker_quiet("network", "create", "--subnet", SUBNET, NETWORK)

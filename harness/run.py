@@ -38,6 +38,16 @@ SERVERS = {
         "qth-quiche", "quiche.Dockerfile",
         ["qth-server-quiche", "--cert", CERT_ARGS[0], "--key", CERT_ARGS[1]], "--sign-delay-ms",
     ),
+    "s2n-quic": (
+        "qth-s2n", "s2n-quic.Dockerfile",
+        ["qth-server-s2n", "--cert", CERT_ARGS[0], "--key", CERT_ARGS[1]], "--sign-delay-ms",
+    ),
+}
+# name -> (image, Dockerfile, program). Every program takes the flags of
+# qth-client and writes the same records; only qth-client has -rate and qlog.
+CLIENTS = {
+    "quic-go": ("qth-go", "go.Dockerfile", "qth-client"),
+    "s2n-quic": ("qth-s2n", "s2n-quic.Dockerfile", "qth-client-s2n"),
 }
 
 
@@ -62,9 +72,10 @@ def ensure_certs(cert_dir: Path) -> None:
     os.chmod(cert_dir / "key.pem", 0o644)
 
 
-def build_images(servers: list[str]) -> dict[str, str]:
-    """Builds the client image and the images of the selected servers; returns image IDs."""
-    wanted = {CLIENT_IMAGE: "go.Dockerfile"} | {SERVERS[name][0]: SERVERS[name][1] for name in servers}
+def build_images(servers: list[str], client: str = "quic-go") -> dict[str, str]:
+    """Builds the Go image and the images of the selected servers and client; returns image IDs."""
+    wanted = {CLIENT_IMAGE: "go.Dockerfile", CLIENTS[client][0]: CLIENTS[client][1]}
+    wanted |= {SERVERS[name][0]: SERVERS[name][1] for name in servers}
     for image, dockerfile in wanted.items():
         sh("docker", "build", "-q", "-t", image, "-f", str(HARNESS / "docker" / dockerfile), str(HARNESS))
     return {image: sh("docker", "image", "inspect", "-f", "{{.Id}}", image, capture=True).strip() for image in wanted}
@@ -101,6 +112,7 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
     else:
         n, pacing = (args.n if conc == 1 else max(args.n, conc * args.waves)), f"-c {conc}"
     image, _, command, delay_flag = SERVERS[server]
+    client_image, _, client_program = CLIENTS[args.client]
     docker_quiet("rm", "-f", SERVER_NAME, CLIENT_NAME)
     load_before = os.getloadavg()
     started = time.time()
@@ -116,7 +128,7 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
         sh("docker", "exec", SERVER_NAME, *netem_args(rtt, loss))
         client_cmd = " && ".join([
             " ".join(netem_args(rtt, loss)),
-            f"qth-client -addr {SERVER_IP}:4433 -ca /certs/cert.pem -n {n} {pacing} -out /out/client.jsonl",
+            f"{client_program} -addr {SERVER_IP}:4433 -ca /certs/cert.pem -n {n} {pacing} -out /out/client.jsonl",
         ])
         uid, gid = os.getuid(), os.getgid()
         client = subprocess.run(
@@ -126,7 +138,7 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
                 # qlog files of every connection would cost the client more than a fixed-rate load itself.
                 *([] if rate > 0 else ["-e", "QLOGDIR=/out/qlog"]),
                 "-v", f"{args.certs}:/certs:ro", "-v", f"{cell}:/out",
-                CLIENT_IMAGE, "sh", "-c", f"{client_cmd}; rc=$?; chown -R {uid}:{gid} /out; exit $rc",
+                client_image, "sh", "-c", f"{client_cmd}; rc=$?; chown -R {uid}:{gid} /out; exit $rc",
             ],
             text=True, capture_output=True,
         )
@@ -137,7 +149,8 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
         docker_quiet("rm", "-f", SERVER_NAME)
 
     meta = {
-        "server": server, "rtt_ms": rtt, "loss_pct": loss, "sign_delay_ms": delay, "concurrency": conc, "rate": rate, "n": n,
+        "server": server, "client": args.client, "rtt_ms": rtt, "loss_pct": loss, "sign_delay_ms": delay,
+        "concurrency": conc, "rate": rate, "n": n,
         "client_exit_code": client.returncode, "started_unix": started, "duration_s": time.time() - started,
         "loadavg_before": load_before, "loadavg_after": os.getloadavg(),
         "server_cpus": args.server_cpus, "client_cpus": args.client_cpus,
@@ -158,6 +171,7 @@ def main() -> None:
     parser.add_argument("--rate-seconds", type=float, default=10, help="length of a fixed-rate cell")
     parser.add_argument("--n", type=int, default=50, help="measured handshakes per cell")
     parser.add_argument("--waves", type=int, default=5, help="minimum waves per cell when concurrency > 1")
+    parser.add_argument("--client", default="quic-go", choices=sorted(CLIENTS))
     parser.add_argument("--server-cpus", default="4,5")
     parser.add_argument("--client-cpus", default="6,7")
     parser.add_argument("--certs", type=Path, default=HARNESS / "certs")
@@ -168,7 +182,7 @@ def main() -> None:
 
     servers = args.servers.split(",")
     ensure_certs(args.certs)
-    images = build_images(servers)
+    images = build_images(servers, args.client)
     docker_quiet("network", "create", "--subnet", SUBNET, NETWORK)
     run_record = {"argv": sys.argv[1:], "images": images}
     (out / f"run-{int(time.time())}.json").write_text(json.dumps(run_record, indent=2) + "\n")
