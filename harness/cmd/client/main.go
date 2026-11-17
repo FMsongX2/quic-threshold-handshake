@@ -1,5 +1,5 @@
-// Command qth-client opens QUIC connections in waves and records how long
-// each full handshake takes.
+// Command qth-client opens QUIC connections, in waves or at a fixed rate,
+// and records how long each full handshake takes.
 package main
 
 import (
@@ -36,6 +36,7 @@ func main() {
 	alpn := flag.String("alpn", "qth", "ALPN protocol")
 	n := flag.Int("n", 50, "number of measured handshakes")
 	conc := flag.Int("c", 1, "handshakes started at the same instant per wave")
+	rate := flag.Float64("rate", 0, "start handshakes at this rate per second whether or not earlier ones finished; 0 uses waves")
 	warmup := flag.Int("warmup", 1, "handshakes run before measuring, excluded from statistics")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-handshake timeout")
 	gap := flag.Duration("gap", 100*time.Millisecond, "pause between waves")
@@ -100,30 +101,54 @@ func main() {
 		time.Sleep(*gap)
 	}
 
-	for wave := 0; index-*warmup < *n; wave++ {
-		size := min(*conc, *n-(index-*warmup))
-		recs := make([]record, size)
-		var ready, done sync.WaitGroup
-		startGate := make(chan struct{})
+	if *rate > 0 {
+		// Open loop: the start times do not depend on how fast the server
+		// answers, so an overloaded server shows up as growing handshake
+		// times instead of a lower offered load. Wave holds the second in
+		// which the handshake started.
+		recs := make([]record, *n)
+		interval := time.Duration(float64(time.Second) / *rate)
+		begin := time.Now()
+		var done sync.WaitGroup
 		for k := range recs {
-			recs[k] = record{Index: index + k, Wave: wave}
-			ready.Add(1)
+			time.Sleep(time.Until(begin.Add(time.Duration(k) * interval)))
+			recs[k] = record{Index: index + k, Wave: int(time.Since(begin) / time.Second)}
 			done.Add(1)
 			go func(rec *record) {
 				defer done.Done()
-				ready.Done()
-				<-startGate
 				dial(rec)
 			}(&recs[k])
 		}
-		ready.Wait()
-		close(startGate)
 		done.Wait()
 		for k := range recs {
 			enc.Encode(recs[k])
 		}
-		index += size
-		time.Sleep(*gap)
+	} else {
+		for wave := 0; index-*warmup < *n; wave++ {
+			size := min(*conc, *n-(index-*warmup))
+			recs := make([]record, size)
+			var ready, done sync.WaitGroup
+			startGate := make(chan struct{})
+			for k := range recs {
+				recs[k] = record{Index: index + k, Wave: wave}
+				ready.Add(1)
+				done.Add(1)
+				go func(rec *record) {
+					defer done.Done()
+					ready.Done()
+					<-startGate
+					dial(rec)
+				}(&recs[k])
+			}
+			ready.Wait()
+			close(startGate)
+			done.Wait()
+			for k := range recs {
+				enc.Encode(recs[k])
+			}
+			index += size
+			time.Sleep(*gap)
+		}
 	}
 
 	// Let closed connections flush their qlog files.

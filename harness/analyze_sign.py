@@ -113,6 +113,10 @@ def summarize(cell: Path) -> dict:
         row["t_hs_p99"] = round(percentile(ok, 99), 3) if ok else ""
         if ok and parts:
             row["t_hs_minus_d_sign_p50"] = round(row["t_hs_p50"] - row["d_sign_p50"], 3)
+        # Conditions newer runs record; older run directories lack them.
+        for key in ("concurrency", "rate", "client_loss_pct", "server_cpus", "signer_cpus", "signer_jitter_pct", "events"):
+            if key in meta:
+                row[key] = meta[key]
     return row
 
 

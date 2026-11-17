@@ -87,13 +87,19 @@ def wait_ready(timeout_s: float = 20) -> None:
     raise RuntimeError("server did not become ready")
 
 
-def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, conc: int) -> None:
-    cell = out / f"{server}_rtt{rtt:g}_loss{loss:g}_d{delay}_c{conc}"
+def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, conc: int, rate: float) -> None:
+    """conc handshakes per wave, or, when rate is positive, rate handshakes
+    started per second for args.rate_seconds whether or not earlier ones finished."""
+    load = f"r{rate:g}" if rate > 0 else f"c{conc}"
+    cell = out / f"{server}_rtt{rtt:g}_loss{loss:g}_d{delay}_{load}"
     if (cell / "meta.json").exists():
         print(f"skip {cell.name}", flush=True)
         return
     (cell / "qlog").mkdir(parents=True, exist_ok=True)
-    n = args.n if conc == 1 else max(args.n, conc * args.waves)
+    if rate > 0:
+        n, pacing = int(rate * args.rate_seconds), f"-rate {rate}"
+    else:
+        n, pacing = (args.n if conc == 1 else max(args.n, conc * args.waves)), f"-c {conc}"
     image, _, command, delay_flag = SERVERS[server]
     docker_quiet("rm", "-f", SERVER_NAME, CLIENT_NAME)
     load_before = os.getloadavg()
@@ -110,14 +116,16 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
         sh("docker", "exec", SERVER_NAME, *netem_args(rtt, loss))
         client_cmd = " && ".join([
             " ".join(netem_args(rtt, loss)),
-            f"qth-client -addr {SERVER_IP}:4433 -ca /certs/cert.pem -n {n} -c {conc} -out /out/client.jsonl",
+            f"qth-client -addr {SERVER_IP}:4433 -ca /certs/cert.pem -n {n} {pacing} -out /out/client.jsonl",
         ])
         uid, gid = os.getuid(), os.getgid()
         client = subprocess.run(
             [
                 "docker", "run", "--rm", "--name", CLIENT_NAME, "--network", NETWORK,
                 "--cap-add", "NET_ADMIN", "--cpuset-cpus", args.client_cpus,
-                "-e", "QLOGDIR=/out/qlog", "-v", f"{args.certs}:/certs:ro", "-v", f"{cell}:/out",
+                # qlog files of every connection would cost the client more than a fixed-rate load itself.
+                *([] if rate > 0 else ["-e", "QLOGDIR=/out/qlog"]),
+                "-v", f"{args.certs}:/certs:ro", "-v", f"{cell}:/out",
                 CLIENT_IMAGE, "sh", "-c", f"{client_cmd}; rc=$?; chown -R {uid}:{gid} /out; exit $rc",
             ],
             text=True, capture_output=True,
@@ -129,7 +137,7 @@ def run_cell(args, out: Path, server: str, rtt: float, loss: float, delay: int, 
         docker_quiet("rm", "-f", SERVER_NAME)
 
     meta = {
-        "server": server, "rtt_ms": rtt, "loss_pct": loss, "sign_delay_ms": delay, "concurrency": conc, "n": n,
+        "server": server, "rtt_ms": rtt, "loss_pct": loss, "sign_delay_ms": delay, "concurrency": conc, "rate": rate, "n": n,
         "client_exit_code": client.returncode, "started_unix": started, "duration_s": time.time() - started,
         "loadavg_before": load_before, "loadavg_after": os.getloadavg(),
         "server_cpus": args.server_cpus, "client_cpus": args.client_cpus,
@@ -146,6 +154,8 @@ def main() -> None:
     parser.add_argument("--rtts", default="20", help="client-server RTTs in ms, comma separated")
     parser.add_argument("--losses", default="0", help="per-direction loss in percent, comma separated")
     parser.add_argument("--concs", default="1", help="handshakes per wave, comma separated")
+    parser.add_argument("--rates", default="", help="handshakes started per second, comma separated; each adds a fixed-rate cell")
+    parser.add_argument("--rate-seconds", type=float, default=10, help="length of a fixed-rate cell")
     parser.add_argument("--n", type=int, default=50, help="measured handshakes per cell")
     parser.add_argument("--waves", type=int, default=5, help="minimum waves per cell when concurrency > 1")
     parser.add_argument("--server-cpus", default="4,5")
@@ -163,16 +173,17 @@ def main() -> None:
     run_record = {"argv": sys.argv[1:], "images": images}
     (out / f"run-{int(time.time())}.json").write_text(json.dumps(run_record, indent=2) + "\n")
 
+    loads = [(int(v), 0.0) for v in args.concs.split(",") if v] + [(1, float(v)) for v in args.rates.split(",") if v]
     matrix = itertools.product(
         servers,
         [float(v) for v in args.rtts.split(",")],
         [float(v) for v in args.losses.split(",")],
         [int(v) for v in args.delays.split(",")],
-        [int(v) for v in args.concs.split(",")],
+        loads,
     )
     try:
-        for server, rtt, loss, delay, conc in matrix:
-            run_cell(args, out, server, rtt, loss, delay, conc)
+        for server, rtt, loss, delay, (conc, rate) in matrix:
+            run_cell(args, out, server, rtt, loss, delay, conc, rate)
     finally:
         docker_quiet("rm", "-f", SERVER_NAME, CLIENT_NAME)
         docker_quiet("network", "rm", NETWORK)

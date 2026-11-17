@@ -105,12 +105,17 @@ def summarize_cell(cell: Path) -> dict:
 
     first_types = sorted({f"{r['first_recv_type']}:{r['first_recv_frames']}" for r in ok if r.get("first_recv_type")})
     pto = column("max_pto_count")
+    # Handshakes finished per second between the first start and the last
+    # completion; below the offered rate when the server falls behind.
+    span_s = (max(r["start_unix_ns"] + r["t_hs_ms"] * 1e6 for r in ok) - min(r["start_unix_ns"] for r in ok)) / 1e9 if ok else 0
     return {
         "server": meta["server"],
         "rtt_ms": meta["rtt_ms"],
         "loss_pct": meta["loss_pct"],
         "sign_delay_ms": meta["sign_delay_ms"],
         "concurrency": meta["concurrency"],
+        "rate": meta.get("rate", 0),
+        "completed_per_s": round(len(ok) / span_s, 1) if span_s > 0 else "",
         "n": len(measured),
         "ok": len(ok),
         "t_hs_p50": p("t_hs_ms", 50),
@@ -137,14 +142,14 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = [summarize_cell(cell) for cell in sorted(args.run_dir.iterdir()) if (cell / "meta.json").exists()]
-    rows.sort(key=lambda r: (r["server"], r["rtt_ms"], r["loss_pct"], r["concurrency"], r["sign_delay_ms"]))
+    rows.sort(key=lambda r: (r["server"], r["rtt_ms"], r["loss_pct"], r["concurrency"], r["rate"], r["sign_delay_ms"]))
 
     # excess = median handshake time minus the zero-delay, concurrency-1 median
     # of the same server and network, minus the injected delay.
     base = {
         (r["server"], r["rtt_ms"], r["loss_pct"]): r["t_hs_p50"]
         for r in rows
-        if r["sign_delay_ms"] == 0 and r["concurrency"] == 1 and r["t_hs_p50"] != ""
+        if r["sign_delay_ms"] == 0 and r["concurrency"] == 1 and r["rate"] == 0 and r["t_hs_p50"] != ""
     }
     for r in rows:
         b = base.get((r["server"], r["rtt_ms"], r["loss_pct"]))
@@ -156,7 +161,7 @@ def main() -> None:
         writer.writerows(rows)
 
     shown = [
-        "server", "rtt_ms", "loss_pct", "concurrency", "sign_delay_ms", "ok", "n", "t_hs_p50", "t_hs_p95", "t_hs_max",
+        "server", "rtt_ms", "loss_pct", "concurrency", "rate", "sign_delay_ms", "ok", "n", "completed_per_s", "t_hs_p50", "t_hs_p95", "t_hs_max",
         "excess_p50", "first_recv_p50", "first_rtt_sample_p50", "sent_before_complete_mean", "pto_share", "first_recv_kinds",
     ]
     print("| " + " | ".join(shown) + " |")

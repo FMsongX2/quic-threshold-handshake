@@ -8,6 +8,11 @@ handshake  measures the handshake time T_hs with a quic-go server whose
 Every signer runs in its own container on a dedicated bridge network. The
 round-trip delay to a signer is applied with tc netem on that signer's egress;
 loss is applied on the egress of both the signer and the coordinator.
+
+Handshake mode can change a signer while the client runs: --events takes
+AT:ACTION:SIGNER[:VALUE] items separated by semicolons, where AT is seconds
+after the client starts and ACTION is stop, pause, unpause, rtt (ms) or loss
+(percent).
 """
 
 import argparse
@@ -28,7 +33,9 @@ SIGNER_PREFIX = "10.89.1."
 COORDINATOR_IP = "10.89.1.2"
 SIGNER_PORT = 7000  # plain TCP, and QUIC over UDP
 SIGNER_TLS_PORT = 7001
-SIGNER_CPUS = ["0", "1", "2", "3", "8", "9", "10", "11"]
+# One core per signer in this order. CPU 9 is left out: an unrelated process
+# on the measurement host keeps it busy.
+SIGNER_CPUS = ["0", "1", "2", "3", "8", "10", "11"]
 COORDINATOR_NAME = "qth-coord"
 CLIENT_NAME = "qth-client"
 
@@ -78,12 +85,14 @@ def wait_ready(container: str, timeout_s: float = 60) -> None:
     raise RuntimeError(f"{container} did not become ready")
 
 
-def netem(container: str, device: str, delay_ms: float, loss_pct: float) -> None:
+def netem(container: str, device: str, delay_ms: float, loss_pct: float, jitter_ms: float = 0) -> None:
     if delay_ms <= 0 and loss_pct <= 0:
         return
     command = ["docker", "exec", container, "tc", "qdisc", "replace", "dev", device, "root", "netem"]
     if delay_ms > 0:
         command += ["delay", f"{delay_ms}ms"]
+        if jitter_ms > 0:
+            command += [f"{jitter_ms}ms", "distribution", "normal"]
     if loss_pct > 0:
         command += ["loss", f"{loss_pct}%"]
     sh(*command)
@@ -99,12 +108,15 @@ def device_for(container: str, prefix: str) -> str:
     raise RuntimeError(f"{container} has no address in {prefix}")
 
 
-def start_signers(keys: Path, rtts: list[float], loss: float, transport: str) -> str:
+def start_signers(args, keys: Path, rtts: list[float], loss: float, transport: str) -> str:
     """Starts one signer per RTT entry; returns the coordinator's -signers value for transport."""
+    if len(rtts) * args.signer_cpus > len(SIGNER_CPUS):
+        raise ValueError(f"{len(rtts)} signers with {args.signer_cpus} CPUs each need more than {len(SIGNER_CPUS)} CPUs")
     for i in range(1, len(rtts) + 1):
+        cpus = ",".join(SIGNER_CPUS[(i - 1) * args.signer_cpus:i * args.signer_cpus])
         sh(
             "docker", "run", "-d", "--name", signer_name(i), "--network", SIGNER_NETWORK, "--ip", signer_ip(i),
-            "--cap-add", "NET_ADMIN", "--cpuset-cpus", SIGNER_CPUS[(i - 1) % len(SIGNER_CPUS)],
+            "--cap-add", "NET_ADMIN", "--cpuset-cpus", cpus,
             "-v", f"{keys}:/keys:ro", CLIENT_IMAGE,
             "qth-signer", "-share", f"/keys/share-{i}.json", "-listen", f":{SIGNER_PORT}",
             "-tls-listen", f":{SIGNER_TLS_PORT}", "-quic-listen", f":{SIGNER_PORT}",
@@ -112,9 +124,38 @@ def start_signers(keys: Path, rtts: list[float], loss: float, transport: str) ->
         )
     for i, rtt in enumerate(rtts, start=1):
         wait_ready(signer_name(i))
-        netem(signer_name(i), "eth0", rtt, loss)
+        netem(signer_name(i), "eth0", rtt, loss, rtt * args.signer_jitter_pct / 100)
     port = SIGNER_TLS_PORT if transport.startswith("tls") else SIGNER_PORT
     return ",".join(f"{signer_ip(i)}:{port}" for i in range(1, len(rtts) + 1))
+
+
+def parse_events(spec: str) -> list[tuple[float, str, int, float]]:
+    """AT:ACTION:SIGNER[:VALUE] items separated by semicolons, sorted by AT."""
+    events = []
+    for item in filter(None, spec.split(";")):
+        fields = item.split(":")
+        if fields[1] not in ("stop", "pause", "unpause", "rtt", "loss"):
+            raise ValueError(f"unknown event action in {item}")
+        events.append((float(fields[0]), fields[1], int(fields[2]), float(fields[3]) if len(fields) > 3 else 0.0))
+    return sorted(events)
+
+
+def apply_event(event: tuple[float, str, int, float], rtts: list[float], losses: list[float]) -> None:
+    """Changes one signer. rtts and losses hold the current link state per
+    signer and are updated, because netem replaces the whole qdisc."""
+    _, action, signer, value = event
+    name = signer_name(signer)
+    if action == "stop":
+        sh("docker", "kill", name, capture=True)
+    elif action in ("pause", "unpause"):
+        sh("docker", action, name, capture=True)
+    else:
+        if action == "rtt":
+            rtts[signer - 1] = value
+        else:
+            losses[signer - 1] = value
+        sh("docker", "exec", name, "tc", "qdisc", "del", "dev", "eth0", "root", check=False, capture=True)
+        netem(name, "eth0", rtts[signer - 1], losses[signer - 1])
 
 
 def remove_all(n: int) -> None:
@@ -170,9 +211,10 @@ def cell_name(config: dict, policy: str, transport: str, rtt_spec: str, loss: fl
     return f"{scheme}_t{config['t']}n{config['n']}_{policy}_{transport}_rtt{rtt}_loss{loss:g}"
 
 
-def base_meta(config: dict, policy: str, transport: str, rtts: list[float], loss: float) -> dict:
+def base_meta(args, config: dict, policy: str, transport: str, rtts: list[float], loss: float) -> dict:
     return {
         **config, "policy": policy, "transport": transport, "signer_rtts_ms": rtts, "signer_loss_pct": loss,
+        "signer_cpus": args.signer_cpus, "signer_jitter_pct": args.signer_jitter_pct,
         "started_unix": time.time(), "loadavg_before": os.getloadavg(),
     }
 
@@ -192,9 +234,9 @@ def run_bench(args, out: Path, config: dict, policy: str, transport: str, rtt_sp
     keys = ensure_keys(args.keys, config)
     rtts = parse_rtts(rtt_spec, config["n"])
     remove_all(config["n"])
-    meta = base_meta(config, policy, transport, rtts, loss)
+    meta = base_meta(args, config, policy, transport, rtts, loss)
     try:
-        signers = start_signers(keys, rtts, loss, transport)
+        signers = start_signers(args, keys, rtts, loss, transport)
         bench = " ".join([
             "qth-signbench", "-public", "/keys/public.json", "-signers", signers, "-n", str(args.n),
             "-out", "/out/sign.jsonl", *coordinator_flags(config, policy, transport), *signer_qlog_flags(args, cell),
@@ -224,11 +266,14 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
     keys = ensure_keys(args.keys, config)
     rtts = parse_rtts(rtt_spec, config["n"])
     remove_all(config["n"])
-    meta = base_meta(config, policy, transport, rtts, loss)
-    meta.update(client_rtt_ms=args.client_rtt, concurrency=args.conc)
+    meta = base_meta(args, config, policy, transport, rtts, loss)
+    meta.update(
+        client_rtt_ms=args.client_rtt, client_loss_pct=args.client_loss, concurrency=args.conc, rate=args.rate,
+        server_cpus=args.server_cpus, client_cpus=args.client_cpus, events=args.events,
+    )
     uid, gid = os.getuid(), os.getgid()
     try:
-        signers = start_signers(keys, rtts, loss, transport)
+        signers = start_signers(args, keys, rtts, loss, transport)
         # The server needs both networks before it starts, because the
         # coordinator connects to the signers at startup.
         sh(
@@ -243,23 +288,40 @@ def run_handshake(args, out: Path, config: dict, policy: str, transport: str, rt
         sh("docker", "network", "connect", "--ip", COORDINATOR_IP, SIGNER_NETWORK, "qth-server")
         sh("docker", "start", "qth-server", capture=True)
         wait_ready("qth-server")
-        netem("qth-server", device_for("qth-server", "10.89.0."), args.client_rtt / 2, 0)
+        netem("qth-server", device_for("qth-server", "10.89.0."), args.client_rtt / 2, args.client_loss)
         netem("qth-server", device_for("qth-server", SIGNER_PREFIX), 0, loss)
 
+        # A fixed rate has no waves; qlog files of every connection would
+        # cost the client more than the handshakes themselves.
+        pacing = f"-rate {args.rate}" if args.rate > 0 else f"-c {args.conc}"
         client = " && ".join([
-            f"tc qdisc replace dev eth0 root netem delay {args.client_rtt / 2}ms",
-            f"qth-client -addr {SERVER_IP}:4433 -ca /keys/cert.pem -n {args.n} -c {args.conc} -out /out/client.jsonl",
+            " ".join(["tc", "qdisc", "replace", "dev", "eth0", "root", "netem", "delay", f"{args.client_rtt / 2}ms"]
+                     + (["loss", f"{args.client_loss}%"] if args.client_loss > 0 else [])),
+            f"qth-client -addr {SERVER_IP}:4433 -ca /keys/cert.pem -n {args.n} {pacing} -out /out/client.jsonl",
         ])
-        result = subprocess.run(
+        events = parse_events(args.events)
+        link_rtts, link_losses = list(rtts), [loss] * len(rtts)
+        while events and events[0][0] <= 0:
+            apply_event(events.pop(0), link_rtts, link_losses)
+        process = subprocess.Popen(
             [
                 "docker", "run", "--rm", "--name", CLIENT_NAME, "--network", NETWORK,
                 "--cap-add", "NET_ADMIN", "--cpuset-cpus", args.client_cpus,
-                "-e", "QLOGDIR=/out/qlog", "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", CLIENT_IMAGE,
+                *([] if args.rate > 0 else ["-e", "QLOGDIR=/out/qlog"]),
+                "-v", f"{keys}:/keys:ro", "-v", f"{cell}:/out", CLIENT_IMAGE,
                 "sh", "-c", f"{client}; rc=$?; chown -R {uid}:{gid} /out; exit $rc",
             ],
-            text=True, capture_output=True,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         )
-        (cell / "client.log").write_text(result.stdout + result.stderr)
+        client_started = time.time()
+        meta["client_started_unix"] = client_started
+        for event in events:
+            time.sleep(max(0.0, client_started + event[0] - time.time()))
+            if process.poll() is None:
+                apply_event(event, link_rtts, link_losses)
+        output, _ = process.communicate()
+        result = subprocess.CompletedProcess(process.args, process.returncode, output, "")
+        (cell / "client.log").write_text(result.stdout)
         logs = subprocess.run(["docker", "logs", "qth-server"], text=True, capture_output=True)
         (cell / "server.log").write_text(logs.stdout + logs.stderr)
         subprocess.run(["docker", "exec", "qth-server", "chown", "-R", f"{uid}:{gid}", "/out"], capture_output=True)
@@ -279,7 +341,12 @@ def main() -> None:
     parser.add_argument("--losses", default="0", help="per-direction loss on signer links in percent")
     parser.add_argument("--n", type=int, default=200, help="measured signatures or handshakes per cell")
     parser.add_argument("--client-rtt", type=float, default=20, help="client-server RTT in ms (handshake mode)")
+    parser.add_argument("--client-loss", type=float, default=0, help="per-direction loss on the client link in percent (handshake mode)")
     parser.add_argument("--conc", type=int, default=1, help="handshakes per wave (handshake mode)")
+    parser.add_argument("--rate", type=float, default=0, help="handshakes started per second regardless of completions; replaces waves (handshake mode)")
+    parser.add_argument("--events", default="", help="signer changes while the client runs; see the module description (handshake mode)")
+    parser.add_argument("--signer-cpus", type=int, default=1, help="CPU cores per signer")
+    parser.add_argument("--signer-jitter-pct", type=float, default=0, help="standard deviation of the signer link delay, in percent of its RTT")
     parser.add_argument("--server-cpus", default="4,5")
     parser.add_argument("--client-cpus", default="6,7")
     parser.add_argument("--keys", type=Path, default=HARNESS / "keys")
