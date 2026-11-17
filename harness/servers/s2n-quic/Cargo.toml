@@ -1,0 +1,22 @@
+[package]
+name = "qth-server-s2n"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Must stay on the aws-lc-rs that s2n-quic resolves to, so one copy of AWS-LC is linked.
+aws-lc-rs = "1"
+s2n-quic = { version = "=1.92.0", default-features = false, features = [
+    "provider-address-token-default",
+    # Local key mode: s2n-tls exposes an asynchronous private key callback.
+    "provider-tls-s2n",
+    "unstable_private_key",
+    # Daemon mode: rustls signs the unhashed message, and offloading runs each
+    # TLS session as its own task.
+    "provider-tls-rustls",
+    "unstable-offload-tls",
+] }
+# The rustls that s2n-quic-rustls uses; s2n-quic deprecates its re-export.
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
