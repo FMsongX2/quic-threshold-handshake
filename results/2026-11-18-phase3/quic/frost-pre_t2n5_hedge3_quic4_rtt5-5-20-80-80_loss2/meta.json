@@ -1,0 +1,31 @@
+{
+  "scheme": "frost",
+  "t": 2,
+  "n": 5,
+  "precompute": true,
+  "policy": "hedge3",
+  "transport": "quic4",
+  "signer_rtts_ms": [
+    5.0,
+    5.0,
+    20.0,
+    80.0,
+    80.0
+  ],
+  "signer_loss_pct": 2.0,
+  "signer_cpus": 1,
+  "signer_jitter_pct": 0,
+  "started_unix": 1794968125.4249275,
+  "loadavg_before": [
+    2.20458984375,
+    2.52587890625,
+    3.3623046875
+  ],
+  "exit_code": 0,
+  "duration_s": 20.404612064361572,
+  "loadavg_after": [
+    2.0654296875,
+    2.47509765625,
+    3.328125
+  ]
+}

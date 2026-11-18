@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "bench",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-phase3/tcp",
+    "--configs",
+    "frost:2:5:pre",
+    "--policies",
+    "fastest,fastestn1.5,hedge3,hedge4,hedge5,hedge3d1.5,hedge4d1.5,hedge5d1.5",
+    "--transports",
+    "persistent",
+    "--rtts",
+    "5/5/20/20/80",
+    "--losses",
+    "0,2",
+    "--n",
+    "1000"
+  ],
+  "images": {
+    "qth-go": "sha256:0ea40e86268a3eac6ba02be02a6abbb7785c86fd2d8a52a02f6879553b41eb55"
+  }
+}

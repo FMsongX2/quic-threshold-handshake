@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "bench",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-phase3/quic",
+    "--configs",
+    "frost:2:5:pre",
+    "--policies",
+    "fastest,fastestn1.5,hedge3,hedge4,hedge5,hedge3d1.5,hedge4d1.5,hedge5d1.5",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5/5/5/20/80,5/5/20/20/80,5/5/20/80/80,5/20/20/80/80,5/20/80/80/80",
+    "--losses",
+    "0,2",
+    "--n",
+    "1000"
+  ],
+  "images": {
+    "qth-go": "sha256:5a6bc88cd6b140b7571e3d811c6fe550dcdf0146f448ada39e4196a64655a52e"
+  }
+}

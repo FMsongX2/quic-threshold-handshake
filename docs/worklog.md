@@ -383,6 +383,14 @@ s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 
 - ECDSA의 presignature는 signer 집합에 묶인다. coordinator는 시작할 때 fastest가 고른 집합 하나만 채운다. RTT_s가 같은 조건에서 fastest의 집합이 측정 중에 바뀌자 새 집합의 pool을 채우는 계산이 서명과 겹쳤고, (3, 5)에서는 handshake가 100개 중 1~6개 실패했다. 측정 설계의 실수(집합을 고정하지 않음)이면서, 이 scheme에서 집합 전환이 비싸다는 결과이기도 하다. 해당 조건 10개는 지연의 크기를 말할 때 빼고 따로 적었다.
 - 2번은 예측을 적지 않고 시작했다. 3번과 5번의 예측은 2번의 결과를 본 뒤, 3번과 5번의 결과를 보기 전에 적었다. 3번의 예측 5개는 네트워크 항과 계산 시간의 크기에서 맞았다. 집합 전환의 비용은 예측하지 못했다.
 
+### Phase 3 측정과 검증 측정의 예측
+
+대기열 4번(세 region 배치의 전수 측정, 조건 264개)이 끝났고 실패한 실행은 없었다. 이 측정은 coordinator만 실행해 D_sign을 잰 것이다. 결과에서 고른 구성이 실제 handshake에서도 같은 순서와 크기를 보이는지 `harness/campaigns/phase3-verify.sh`로 확인한다. 조건은 quic-go 서버, RTT_c 20 ms, signer link의 loss 2%, 조건마다 handshake 1,000회다. 실행하기 전에 예측을 적는다.
+
+1. T_hs 중앙값은 D_sign 측정의 중앙값에 21.0 ms를 더한 값과 0.5 ms 안에서 같다. 배치 5/5/20/20/80에서 FROST t = 2의 fastest와 hedge4는 26.3, 26.5 ms, t = 3의 fastest, nudge, hedge4, 지연 hedge는 41.4, 41.4, 41.7, 41.5 ms, t = 4의 fastest와 nudge는 41.6 ms, threshold RSA t = 3의 fastest와 first + nudge는 45.2 ms다. 배치 5/5/5/20/80의 t = 2 hedge4는 26.6 ms, t = 3 hedge5는 27.6 ms다.
+2. p99의 순서는 D_sign 측정과 같다. 같은 t에서 hedge4(또는 first)의 p99가 fastest보다 낮다.
+3. hedge와 first의 T_hs p99는 D_sign의 p99에 21 ms를 더한 값과 5 ms 안에서 같다(t = 2 hedge4 41.6 ms, t = 3 hedge4 45.7 ms, threshold RSA first + nudge 47.4 ms, 배치 5/5/5/20/80의 30.5 ms와 43.0 ms). fastest와 nudge의 p99는 표본 10개로 정해지고 D_sign 측정에서도 76~103 ms로 흩어졌으므로 25 ms 안에서 같다고만 예측한다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.

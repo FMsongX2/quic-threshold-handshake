@@ -92,13 +92,18 @@ def sample_d_sign(rng: random.Random, scheme: str, t: int, rtts: list[float], po
                 sum(max(draws[i] for i in subset) for draws in rounds)
                 for subset in itertools.combinations(members, t)
             )
-        # The t nearest signers start alone; the other sessions start only if
-        # those have not finished after the delay. One request round only.
+        # The t nearest signers start alone; the other subsets start only if
+        # those have not finished after the delay. A signer stalled in the
+        # first session answers the later ones with a fresh request, but the
+        # first session itself still waits for its repair. One request round
+        # only.
         primary = max(draw(i) for i in members[:t])
         widen_at = float(hedge[2]) * (max(rtts[i] for i in members[:t]) + spec["compute"]) + STALL_SLACK_MS
         if primary <= widen_at:
             return spec["local"] + primary
-        return spec["local"] + min(primary, widen_at + kth([draw(i) for i in members], t))
+        late = {i: draw(i) for i in members}
+        others = [max(late[i] for i in subset) for subset in itertools.combinations(members, t) if subset != tuple(members[:t])]
+        return spec["local"] + min(primary, widen_at + min(others))
 
     nudge = NUDGE.fullmatch(policy)
     if nudge[1] == "first":
