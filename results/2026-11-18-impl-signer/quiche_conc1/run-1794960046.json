@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-impl-signer/quiche_conc1",
+    "--server",
+    "quiche",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5:pre,frost:3:5,plain-rsa:1:1,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "200",
+    "--conc",
+    "1"
+  ],
+  "images": {
+    "qth-go": "sha256:b7aa9e83bb3cab977905b01ff01fab7b19581b90ba768d11b4c21ac7922e8533",
+    "qth-quiche": "sha256:29e38b634169c84ee17d7d91d8c2a4bd68a142174665ce6b302beeb63a67c5c0"
+  }
+}

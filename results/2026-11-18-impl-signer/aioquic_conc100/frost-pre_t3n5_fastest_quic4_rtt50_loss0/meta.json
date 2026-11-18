@@ -1,0 +1,41 @@
+{
+  "scheme": "frost",
+  "t": 3,
+  "n": 5,
+  "precompute": true,
+  "policy": "fastest",
+  "transport": "quic4",
+  "signer_rtts_ms": [
+    50.0,
+    50.0,
+    50.0,
+    50.0,
+    50.0
+  ],
+  "signer_loss_pct": 0.0,
+  "signer_cpus": 1,
+  "signer_jitter_pct": 0,
+  "started_unix": 1794958585.8641987,
+  "loadavg_before": [
+    2.0966796875,
+    2.15380859375,
+    2.25830078125
+  ],
+  "client_rtt_ms": 20,
+  "client_loss_pct": 0,
+  "concurrency": 100,
+  "rate": 0,
+  "server_cpus": "4,5",
+  "client_cpus": "6,7,14,15",
+  "events": "",
+  "server": "aioquic",
+  "client": "quic-go",
+  "client_started_unix": 1794958588.5172622,
+  "exit_code": 0,
+  "duration_s": 294.0947515964508,
+  "loadavg_after": [
+    1.9169921875,
+    1.97900390625,
+    2.14990234375
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-impl-client-loss/quiche",
+    "--server",
+    "quiche",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "400",
+    "--client-loss",
+    "2"
+  ],
+  "images": {
+    "qth-go": "sha256:268328ab77351f28cb46d712ce2794c9bcb79841d9500015cbc2daa30820bd97",
+    "qth-quiche": "sha256:740a82b560f56df1a5a4eeb72e9135c09ab4dc686f8539752906a1ff2ccdd3b2"
+  }
+}

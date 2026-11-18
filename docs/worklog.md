@@ -350,6 +350,28 @@ batch 1은 조건 422개를 4시간 9분 동안 측정했고 실패한 실행은
 - rsync로 host의 `results/`를 통째로 가져오면 예전 측정의 압축하지 않은 `*.jsonl`이 함께 온다. 압축한 파일이 이미 있는 것은 지우고 commit했다.
 - threshold signing을 QUIC handshake와 함께 측정한 선행 연구를 web search로 다시 찾았다. 검색어는 "threshold signature TLS 1.3 handshake latency QUIC"과 "threshold signing QUIC handshake latency evaluation FROST threshold ECDSA threshold RSA"다. 나온 것은 post-quantum 서명, 인증서 크기, Keyless SSL에 관한 연구였고 해당하는 연구는 찾지 못했다.
 
+### 남은 측정의 예측
+
+구현체별 실제 signer 측정(대기열 2번)은 예측을 적지 않고 시작했다. 그 결과를 본 뒤, 아직 결과를 보지 않은 대기열 3번과 5번의 예측을 적는다. 3번은 이 시점에 실행 중이고 5번은 시작 전이다.
+
+threshold ECDSA(대기열 3번)의 예측이다. 개발 장비의 loopback에서 잰 signer 계산 시간(precomputation이 있을 때 (2, 3) 13 ms, (3, 5) 26 ms, 없을 때 198 ms, 360 ms)을 근거로 삼는다.
+
+1. precomputation이 없으면 요청 round가 6개이므로 D_sign 중앙값은 "6 × RTT_s + 계산 시간"이다. RTT_s 50 ms와 5 ms의 차이는 270 ms다.
+2. precomputation이 있으면 "RTT_s + 계산 시간"이다. 계산 시간은 (2, 3)에서 15~20 ms, (3, 5)에서 30~40 ms다. RTT_s 50 ms와 5 ms의 차이는 45 ms다.
+3. handshake를 하나씩 할 때 T_hs − D_sign은 다섯 서버 모두 20.6~21.8 ms다. 다른 scheme과 같다.
+4. 동시 handshake 10개에서는 signer의 계산이 T_hs를 정한다. signer가 요청 하나에 13 ms를 쓰면 한 wave가 130 ms 이상 걸린다. 서명을 차례로 처리하는 aioquic과 나머지 서버의 T_hs 중앙값 차이는 1.5배 안이다. FROST에서는 이 차이가 2배였다.
+5. signer link의 loss 2%에서, precomputation이 없으면 요청과 응답이 24번 오가므로 서명의 38% 이상이 손실을 겪는다. ECDSA의 message는 packet 여러 개에 실리므로 실제 비율은 더 높다. p95는 QUIC에서 37 ms 이상, TCP에서 210 ms 이상 늘어난다. precomputation이 있으면 8% 안팎이 손실을 겪고 p95가 같은 크기만큼 늘어난다.
+
+s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 예측이다. 4번과 6번은 구현체별 실제 signer 측정에서 s2n-quic 서버가 손실된 handshake packet을 700~1,000 ms 뒤에야 다시 보낸 것을 본 뒤에 적었다.
+
+1. s2n-quic 서버에서 handshake를 하나씩 하면 T_hs는 RTT_c 1, 20, 100 ms 모두에서 주입한 지연만큼만 늘어난다(차이 1 ms 미만).
+2. 동시 handshake 100개, 지연 50 ms에서 T_hs 중앙값은 quiche와 비슷한 75~85 ms다. 서명을 기다리는 handshake가 서로를 막지 않는다.
+3. 정해진 rate에서는 초당 1,600개까지 지연 0, 5, 20 ms 모두 포화하지 않는다.
+4. client link의 loss 2%에서는 TLS library와 무관하게 handshake의 3~5%가 700~1,000 ms 늦어진다. 다시 보내는 시점을 정하는 것은 s2n-quic의 손실 복구다.
+5. 두 번째 client(s2n-quic)로 재도 T_hs는 네 서버 모두에서 주입한 지연만큼만 늘어난다(차이 1.5 ms 미만).
+6. 두 번째 client는 RTT 표본이 없을 때의 probe timeout이 약 1초다(quic-go client는 200 ms). client link의 loss 2%에서 quic-go 서버는 ServerHello가 손실되면 약 1초 늦어지고, 먼저 확인해 주는 quiche는 RTT_c의 3배쯤만 늦어진다. 두 서버의 p99 차이가 quic-go client일 때(약 140 ms)보다 커진다.
+7. 두 번째 client로 실제 signer를 붙인 handshake를 재면 T_hs − D_sign은 20~22 ms다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.

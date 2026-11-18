@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-impl-signer/quic-go_conc10",
+    "--server",
+    "quic-go",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5:pre,frost:3:5,plain-rsa:1:1,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "500",
+    "--conc",
+    "10",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:6017237ee9a87827efbe025855b8d1ed4b263a15d01eb3b2c1700521899b09dc"
+  }
+}

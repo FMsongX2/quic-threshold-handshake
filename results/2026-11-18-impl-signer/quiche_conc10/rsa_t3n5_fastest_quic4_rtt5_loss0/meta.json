@@ -1,0 +1,41 @@
+{
+  "scheme": "rsa",
+  "t": 3,
+  "n": 5,
+  "precompute": false,
+  "policy": "fastest",
+  "transport": "quic4",
+  "signer_rtts_ms": [
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0
+  ],
+  "signer_loss_pct": 0.0,
+  "signer_cpus": 1,
+  "signer_jitter_pct": 0,
+  "started_unix": 1794960465.6985075,
+  "loadavg_before": [
+    1.95361328125,
+    2.17626953125,
+    2.24072265625
+  ],
+  "client_rtt_ms": 20,
+  "client_loss_pct": 0,
+  "concurrency": 10,
+  "rate": 0,
+  "server_cpus": "4,5",
+  "client_cpus": "6,7,14,15",
+  "events": "",
+  "server": "quiche",
+  "client": "quic-go",
+  "client_started_unix": 1794960466.7406344,
+  "exit_code": 0,
+  "duration_s": 10.831393241882324,
+  "loadavg_after": [
+    1.896484375,
+    2.15087890625,
+    2.23095703125
+  ]
+}

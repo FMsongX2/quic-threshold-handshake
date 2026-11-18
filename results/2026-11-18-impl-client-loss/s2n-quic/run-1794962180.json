@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-impl-client-loss/s2n-quic",
+    "--server",
+    "s2n-quic",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "400",
+    "--client-loss",
+    "2"
+  ],
+  "images": {
+    "qth-go": "sha256:5a68e63c95ba7a53a1c414d14dc9fcee01ebb755105f364fc1f3fc1df36f6fb6",
+    "qth-s2n": "sha256:9193c45ffedb0e809318552f2598a48e3ff1458fc7eae5fb4f2658c2f75b9848"
+  }
+}

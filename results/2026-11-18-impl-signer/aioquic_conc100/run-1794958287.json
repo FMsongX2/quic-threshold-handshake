@@ -1,0 +1,27 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-impl-signer/aioquic_conc100",
+    "--server",
+    "aioquic",
+    "--configs",
+    "plain-ed25519:1:1,frost:3:5:pre,frost:3:5,plain-rsa:1:1,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "2000",
+    "--conc",
+    "100",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:b62aaf56135b1b0f66f4fd84c1d9a60fc6ed9dc0b71c0ca2155d6dcefbc452ef",
+    "qth-aioquic": "sha256:6dda9cb11f61f8dad706ffe485e33facc798c4230646b793dbf66326513447ef"
+  }
+}
