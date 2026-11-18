@@ -106,13 +106,22 @@ signer 서비스와 coordinator를 만들어 RQ2에 답하고, Phase 1의 결과
 
 발표 자료와 blog에 실린 계산 시간[9][21]은 장비와 구현이 달라 이 실험의 예측에만 쓰고 결과로 인용하지 않는다.
 
-FROST와 threshold RSA의 측정 결과는 [results-phase2-signer.md](results-phase2-signer.md)에 있다. 가설 H2의 예측이 맞았고, quic-go 서버에 실제 signer를 붙인 handshake에서 T_hs 중앙값과 D_sign 중앙값의 차이는 10개 조건에서 21.0~21.2 ms로 일정했다. 남은 측정은 threshold ECDSA, TLS를 쓰는 signer 연결, signer에 CPU를 더 준 조건, aioquic·quiche 서버에 실제 signer를 붙인 handshake다.
+측정 결과는 다음 문서에 있다. 가설 H2의 예측은 맞았다.
+
+- [results-phase2-signer.md](results-phase2-signer.md): FROST와 threshold RSA의 D_sign 분해, signer 선택 정책, quic-go 서버에 실제 signer를 붙인 handshake.
+- [results-phase2-environment.md](results-phase2-environment.md): RTT_c와 RTT_s의 조합, 두 link의 loss, front server의 CPU 수, 동시 handshake 수, signer의 처리율. T_hs 중앙값은 72개 조건 모두에서 "RTT_c + D_sign + 약 1 ms"였다.
+- [results-phase2-implementations.md](results-phase2-implementations.md): 같은 signer를 네 서버 구현체에 붙인 handshake. T_hs에서 D_sign을 뺀 값은 구현체에 따라 1.3 ms 안에서 같았다.
+- [results-phase2-ecdsa.md](results-phase2-ecdsa.md): threshold ECDSA. precomputation을 쓰면 D_sign이 "RTT_s + 14~36 ms"였고, presignature를 만드는 계산이 서명 rate를 묶었다.
+
+signer 복제본을 두는 조건, 분산 key 생성, signer와 coordinator의 상호 인증은 측정하지 않았다.
 
 ### Phase 3. 최적화
 
 RQ4에 답한다. 4절의 모델을 Phase 1·2의 측정값으로 맞추고, 5절의 문제를 푼 뒤 예측한 구성을 실측으로 검증한다.
 
 - 종료 조건: 보안 제약 수준별로 T_hs의 p99가 가장 낮은 구성과 Pareto frontier를 보고하고, 가설 H4의 예측이 맞았는지 판정한다.
+
+결과는 [results-phase3-optimization.md](results-phase3-optimization.md)에 있다. 미리 정한 판정 기준은 충족됐으나 기준이 너무 넓어 가설을 가르지 못했다. 모델은 D_sign의 중앙값을 맞혔고 p99를 낮게 잡았다. signer 장애, RTT_s의 변화와 jitter, signer 연결 수의 범위는 [results-phase3-robustness.md](results-phase3-robustness.md)에 있다.
 
 ## 4. 지연 모델
 
@@ -138,7 +147,14 @@ Phase 2 측정으로 이 모델을 다음과 같이 구체화했다([results-pha
 - 위 두 항목의 "재전송을 기다리는" 시간은 연결에 뒤따르는 packet이 없을 때 signer의 RTT_s에 transport의 상수를 더한 값이다. 상수는 Linux TCP에서 206~213 ms, quic-go에서 27 ms였다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 4절). TCP에서 응답이 없는 signer의 연결에 ping을 보내면(nudge) 이 시간은 ping을 보낸 시점에 그 signer의 왕복 시간의 두 배쯤을 더한 값으로 줄어든다([results-phase3-adaptive.md](results-phase3-adaptive.md) 3절).
 - 요청이 동시에 오고 signer 링크에 loss가 있으면 한 연결에 몰린 요청의 중앙값이 늘어난다. 손실로 줄어든 congestion window가 전송을 늦추며, TCP에서는 연결 안의 전달 순서도 원인일 수 있다. 동시 요청 100개에서 이 지연은 TCP 연결 16개 이상, QUIC 연결 4개 이상에서 사라졌다. TCP에서는 연결을 늘릴 때 nudge가 함께 필요하다([results-phase3-connections.md](results-phase3-connections.md), [results-phase3-signer-transport.md](results-phase3-signer-transport.md) 5절).
 - 요청마다 연결을 새로 맺는 구성에서는 연결 수립 packet의 손실이 꼬리를 정한다. 대기는 TCP에서 약 1초, quic-go에서 약 200 ms였다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 6.2절).
-- 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다.
+- 요청이 동시에 오면 $W$에 signer의 계산 대기가 들어간다. signer가 CPU 하나로 share 하나에 $c$를 쓰면 그 signer의 처리율 상한은 $1/c$다. threshold RSA에서 측정한 상한은 초당 약 200개로 이 식과 맞았다([results-phase2-environment.md](results-phase2-environment.md) 6절).
+
+Phase 3 측정으로 확인한 모델의 범위는 다음과 같다([results-phase3-optimization.md](results-phase3-optimization.md) 5절).
+
+- 중앙값은 264개 조건에서 2.6 ms 안에서 맞았다.
+- loss가 있을 때의 p99는 132개 조건 중 52개에서 실측이 10 ms 넘게 길었다. QUIC의 손실 복구가 "2r + 27 ms"보다 오래 걸리는 경우와, TCP에서 손실이 뒤따르는 서명까지 늦추는 경우가 모델에 없다.
+- 지연 hedge에서 넓힌 뒤의 시간은 "지연 시간 + 처음의 집합이 아닌 부분집합 가운데 가장 빠른 것"이다. 측정 전의 모델은 이 항을 잘못 계산했고 측정 뒤에 고쳤다.
+- loss가 있을 때 정책 가운데 가장 낮은 p99는 "(t + 1)번째로 가까운 signer의 RTT_s"와 "2 × t번째 signer의 RTT_s + 27 ms" 중 작은 값에 가까웠다.
 
 ## 5. 최적화 문제
 
@@ -148,7 +164,9 @@ $$\min_{x} \; Q_{p}\left(T_{hs}(x)\right) \quad \text{subject to} \quad t \ge t_
 
 $Q_p$는 T_hs의 $p$ 분위수이며 $p$는 0.5와 0.99 두 값을 쓴다. $d(x)$는 서명에 참여하는 $t$개 signer가 걸친 failure domain의 수다. $A(x, f)$는 signer $f$개가 응답하지 않을 때의 handshake 성공률이다. $cost(x)$는 handshake 하나에 쓰는 CPU 시간과 signer 간 통신량이다. hedge에서는 signer가 서명 하나에 계산하는 share 수 $\binom{m-1}{t-1}$과 같은 수의 nonce commitment 소비가 여기에 들어간다.
 
-결정 변수의 조합 수가 수백 개 이하이면 전수 측정한다. 그보다 많으면 4절의 모델로 상위 후보를 추린 뒤 후보만 실측한다. 결과는 $t_{min}$과 $d_{min}$의 수준별로 T_hs p99가 가장 낮은 구성을 표로 정리하고, 보안 수준과 T_hs p99의 Pareto frontier를 그림으로 보고한다.
+결정 변수의 조합 수가 수백 개 이하이면 전수 측정한다. 그보다 많으면 4절의 모델로 상위 후보를 추린 뒤 후보만 실측한다. 결과는 $t_{min}$과 $d_{min}$의 수준별로 T_hs p99가 가장 낮은 구성을 표로 정리한다.
+
+실제로는 signer 5개, region 3개의 배치 5가지에서 정책을 전수 측정했다(조건 264개). $d(x)$는 "한 region의 signer 수가 t보다 적은가"로, $A(x, f)$는 "signer가 가장 많은 region이 사라져도 t개가 남는가"와 signer 하나가 응답하지 않을 때의 성공률로 나누어 보았다. 비용 제약은 식으로 풀지 않고 서명 하나의 share 수를 함께 적었다.
 
 ## 6. 타당성 위협
 
