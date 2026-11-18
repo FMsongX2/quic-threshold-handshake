@@ -372,6 +372,17 @@ s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 
 6. 두 번째 client는 RTT 표본이 없을 때의 probe timeout이 약 1초다(quic-go client는 200 ms). client link의 loss 2%에서 quic-go 서버는 ServerHello가 손실되면 약 1초 늦어지고, 먼저 확인해 주는 quiche는 RTT_c의 3배쯤만 늦어진다. 두 서버의 p99 차이가 quic-go client일 때(약 140 ms)보다 커진다.
 7. 두 번째 client로 실제 signer를 붙인 handshake를 재면 T_hs − D_sign은 20~22 ms다.
 
+### 구현체별 실제 signer와 threshold ECDSA의 결과
+
+대기열 2번과 3번이 끝났다. 2번은 조건 170개가 모두 정상 종료했고, 3번은 조건 43개 중 하나(precomputation을 쓴 ECDSA (3, 5), RTT_s 0 ms)가 서명 하나의 실패로 비정상 종료했다. 결과는 [results-phase2-implementations.md](results-phase2-implementations.md)와 [results-phase2-ecdsa.md](results-phase2-ecdsa.md)에 적었다.
+
+- 실제 signer를 붙인 handshake에서 T_hs − D_sign은 다섯 서버가 20.6~21.8 ms였다. coordinator를 daemon으로 빼는 비용은 동시 100개에서 0.4~3.3 ms였다.
+- client link의 loss 2%에서 s2n-quic 서버는 handshake의 3.5~5%가 150 ms 넘게 늦어졌고 대부분이 360~1,020 ms였다. client qlog를 열어 보니 서버가 손실된 handshake packet을 약 1초 뒤에 다시 보냈다. s2n-quic의 RTT 초깃값이 333 ms여서 표본이 없을 때의 probe timeout이 999 ms다. 서버가 처음 보내는 packet이 ACK만 담고 있어 서버는 표본을 얻지 못한다.
+- threshold RSA의 share 계산 시간이 실행마다 4.9 ms 또는 6.8 ms로 갈리는 것을 처음에는 설명하지 못했다. ECDSA 결과를 signer 집합별로 나누어 보고 원인을 찾았다. signer 5의 CPU(8번)는 signer 1의 CPU(0번)와 같은 물리 core의 thread다. 둘이 함께 뽑힌 실행에서만 계산이 1.4배 걸렸다. host에서 signer에 줄 수 있는 물리 core가 4개여서 signer 5개를 모두 떼어 놓을 수 없다. RTT_s가 같은 조건에서 fastest가 어느 집합을 고르는지는 실행마다 다르므로, 이런 조건의 threshold RSA와 ECDSA 값은 실행끼리 2 ms(RSA), 15 ms(ECDSA)까지 다를 수 있다.
+- threshold ECDSA는 precomputation을 쓰면 D_sign이 "RTT_s + 14~36 ms"였다. presignature 하나를 만드는 데 0.23~0.45초가 들어 서명 rate가 signer의 CPU 하나당 초당 2~4개로 묶인다.
+- ECDSA의 presignature는 signer 집합에 묶인다. coordinator는 시작할 때 fastest가 고른 집합 하나만 채운다. RTT_s가 같은 조건에서 fastest의 집합이 측정 중에 바뀌자 새 집합의 pool을 채우는 계산이 서명과 겹쳤고, (3, 5)에서는 handshake가 100개 중 1~6개 실패했다. 측정 설계의 실수(집합을 고정하지 않음)이면서, 이 scheme에서 집합 전환이 비싸다는 결과이기도 하다. 해당 조건 10개는 지연의 크기를 말할 때 빼고 따로 적었다.
+- 2번은 예측을 적지 않고 시작했다. 3번과 5번의 예측은 2번의 결과를 본 뒤, 3번과 5번의 결과를 보기 전에 적었다. 3번의 예측 5개는 네트워크 항과 계산 시간의 크기에서 맞았다. 집합 전환의 비용은 예측하지 못했다.
+
 ### 남은 일
 
 - threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
