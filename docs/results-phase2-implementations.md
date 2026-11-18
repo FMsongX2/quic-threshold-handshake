@@ -109,7 +109,7 @@ T_hs 중앙값에서 D_sign 중앙값을 뺀 값은 다음과 같다. 범위는 
 | quiche | 20.9~21.4 ms | 23.0~27.0 ms | 20,000 / 20,000 |
 | s2n-quic | 20.7~21.5 ms | 21.2~24.7 ms | 20,000 / 20,000 |
 
-- quic-go, quiche, s2n-quic은 동시 100개에서 서버가 더한 지연이 0.2~8 ms였다. s2n-quic이 가장 작았다. s2n-quic은 worker thread를 여러 개 쓰고 quiche 서버는 thread 하나로 돈다. 서버에 준 CPU는 2개로 같다.
+- quic-go, quiche, s2n-quic은 동시 100개에서 서버가 더한 지연이 0.2~8 ms였다. s2n-quic이 가장 작았다. s2n-quic 서버는 worker thread를 여러 개 쓰고 quiche 서버는 QUIC 처리를 thread 하나로 한다. 서버에 준 CPU는 2개로 같다.
 - daemon을 거치는 quic-go는 process 안에 coordinator를 둔 quic-go보다 T_hs − D_sign이 0.4~3.3 ms 길었다(threshold RSA의 두 조건은 signer 계산 시간이 달라 뺐다).
 - aioquic에서는 T_hs 중앙값이 RTT_s 5 ms 조건에서 0.64~0.71초, RTT_s 50 ms 조건에서 3.2초(FROST는 6.5초)였다. RTT_s 50 ms 조건 5개에서 handshake 2,000개 중 4~13개가 실패했다.
 - threshold RSA는 서버와 무관하게 T_hs가 0.4~0.6초였다. signer의 share 계산이 T_hs를 정한다([results-phase2-environment.md](results-phase2-environment.md) 5절).
@@ -140,7 +140,9 @@ client link에 방향마다 loss 2%를 주고 handshake를 하나씩 400회 했�
 - aioquic은 D_sign이 5 ms일 때 0~1개, 50 ms일 때 5~9개였다. 지연을 주입한 측정에서 본 것과 같이, 서명이 끝난 뒤에 보낸 packet이 손실되면 서버가 다시 보낼 때까지 기다린다.
 - s2n-quic에서는 handshake의 3.5~5%가 150 ms 넘게 늦어졌고 대부분이 350 ms를 넘었다. Ed25519, RTT_s 5 ms 조건에서 그 13개는 중앙값보다 362~1,021 ms 늦었다(362 ms 2개, 726~731 ms 4개, 942~1,021 ms 7개).
 
-s2n-quic의 늦어진 handshake 3개를 client qlog로 확인했다. 서버는 client의 Initial을 곧바로 ACK로 확인해 주었고 client는 RTT 표본을 얻었다. 그 뒤 서버의 Initial이나 Handshake packet이 손실되자 client는 probe timeout마다 PING을 보냈다(handshake를 시작한 지 약 80, 200, 400, 720~770 ms가 된 시점). 서버는 PING마다 ACK만 돌려주었고, 손실된 packet은 750~1,030 ms 시점에 다시 보냈다. client의 probe에 서버가 handshake data를 다시 보내 주는 quiche와 다른 점이다. 서버가 다시 보내는 시점이 무엇으로 정해지는지는 s2n-quic의 source로 확인하지 않았다.
+s2n-quic의 늦어진 handshake 3개를 client qlog로 확인했다. 서버는 client의 Initial을 곧바로 ACK로 확인해 주었고 client는 RTT 표본을 얻었다. 그 뒤 서버의 Initial이나 Handshake packet이 손실되자 client는 probe timeout마다 PING을 보냈다(handshake를 시작한 지 약 80, 200, 400, 720~770 ms가 된 시점). 서버는 PING마다 ACK만 돌려주었고, 손실된 packet은 750~1,030 ms 시점에 다시 보냈다. client의 probe에 서버가 handshake data를 다시 보내 주는 quiche와 다른 점이다.
+
+s2n-quic 0.92의 RTT 초깃값은 333 ms다(source의 `DEFAULT_INITIAL_RTT`). RFC 9002의 식으로 RTT 표본이 없을 때의 probe timeout은 999 ms가 된다. 서버가 먼저 보낸 packet은 ACK만 담고 있어 서버는 RTT 표본을 얻지 못하고, ServerHello를 보낸 지 약 1초 뒤에 다시 보낸 것으로 본다. 두 handshake에서 서버가 다시 보낸 시점은 ServerHello를 보낸 지 1,000 ms가 된 때였다. 362 ms와 730 ms 안팎에 복구된 handshake의 경로는 확인하지 않았다.
 
 ## 6. 한계
 
