@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "bench",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-ecdsa/bench-loss",
+    "--configs",
+    "ecdsa:2:3,ecdsa:2:3:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4,persistent",
+    "--rtts",
+    "5",
+    "--losses",
+    "2",
+    "--n",
+    "100"
+  ],
+  "images": {
+    "qth-go": "sha256:61b715f538ba7865ba89210340e69dd0b08434aa1e760c4e89d141fecebf90be"
+  }
+}

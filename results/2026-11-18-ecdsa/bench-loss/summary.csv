@@ -1,0 +1,5 @@
+scheme,t,n,policy,transport,signer_rtts_ms,signer_loss_pct,signatures,d_sign_p50,d_sign_p95,d_sign_p99,d_sign_max,rounds_p50,compute_p50,network_p50,local_p50,model_network_ms,nudged_share,hedge_fired_share,hedge_sessions_mean,shares_per_signature_mean,pool_miss_share,used_signers,exit_code,loadavg1_before
+ecdsa-pre,2,3,fastest,persistent,5/5/5,2.0,100,20.051,239.894,244.44,244.927,1,14.775,5.075,0.055,5.0,0.0,0.0,0.0,2.0,0.0,1:100 3:100,0,3.31
+ecdsa-pre,2,3,fastest,quic4,5/5/5,2.0,100,23.048,82.909,126.671,151.104,1,17.872,5.101,0.055,5.0,0.0,0.0,0.0,2.0,0.0,1:100 2:100,0,3.0
+ecdsa,2,3,fastest,persistent,5/5/5,2.0,100,315.954,714.397,771.315,967.922,6,272.766,42.062,0.247,30.0,0.0,0.0,0.0,2.0,0.0,1:100 2:100,0,3.7
+ecdsa,2,3,fastest,quic4,5/5/5,2.0,100,304.926,362.155,371.863,375.836,6,273.314,31.078,0.242,30.0,0.0,0.0,0.0,2.0,0.0,1:74 2:100 3:26,0,4.34

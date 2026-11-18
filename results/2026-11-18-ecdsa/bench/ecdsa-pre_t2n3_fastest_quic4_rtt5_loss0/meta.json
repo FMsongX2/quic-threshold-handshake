@@ -1,0 +1,29 @@
+{
+  "scheme": "ecdsa",
+  "t": 2,
+  "n": 3,
+  "precompute": true,
+  "policy": "fastest",
+  "transport": "quic4",
+  "signer_rtts_ms": [
+    5.0,
+    5.0,
+    5.0
+  ],
+  "signer_loss_pct": 0.0,
+  "signer_cpus": 1,
+  "signer_jitter_pct": 0,
+  "started_unix": 1794963050.8215406,
+  "loadavg_before": [
+    4.39697265625,
+    4.13623046875,
+    3.23779296875
+  ],
+  "exit_code": 0,
+  "duration_s": 64.44393253326416,
+  "loadavg_after": [
+    4.0732421875,
+    4.08056640625,
+    3.28125
+  ]
+}

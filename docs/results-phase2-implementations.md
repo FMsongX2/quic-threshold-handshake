@@ -59,7 +59,7 @@ T_hs 중앙값에서 D_sign 중앙값을 뺀 값을 서버별로 모으면 다�
 
 - 서버 사이의 차이는 1.3 ms 안이다. aioquic이 0.6~0.8 ms 길다.
 - quic-go에서 daemon을 거치면 T_hs − D_sign이 0.01~0.13 ms 늘었다.
-- threshold RSA의 D_sign이 조건마다 2 ms씩 다른 것은 signer의 share 계산 시간이 실행마다 4.9 ms 또는 6.8 ms였기 때문이다. 서버와는 무관하게 나타났고 원인은 확인하지 않았다. T_hs에서 D_sign을 뺀 값에는 영향이 없다.
+- threshold RSA의 D_sign이 조건마다 2 ms씩 다른 것은 signer의 share 계산 시간이 실행마다 4.9 ms 또는 6.8 ms였기 때문이다. signer 1과 signer 5는 같은 물리 core의 두 thread를 쓴다. fastest가 고른 집합에 둘이 함께 들어간 실행에서는 둘이 동시에 계산해 6.8 ms가 걸렸고, 그렇지 않은 실행에서는 4.9 ms였다. RTT_s가 모두 같아 어느 집합이 뽑히는지는 실행마다 달랐다. T_hs에서 D_sign을 뺀 값에는 영향이 없다.
 
 ## 4. 동시 handshake
 
@@ -82,7 +82,7 @@ T_hs 중앙값에서 D_sign 중앙값을 뺀 값을 서버별로 모으면 다�
 
 aioquic을 뺀 네 서버는 T_hs에서 D_sign을 뺀 값이 20.7~21.9 ms로, handshake를 하나씩 할 때와 같았다. aioquic은 한 번에 서명 하나만 기다린다. 함께 시작한 handshake 10개가 차례로 끝나므로 중앙값이 "5.5 × (D_sign + c)"에 가까웠고 c는 조건에 따라 −1~5 ms였다. 원격 signer 하나와 precomputation FROST의 D_sign 50 ms에서 283~290 ms, FROST의 100 ms에서 549 ms다.
 
-threshold RSA에서 quic-go + daemon과 s2n-quic의 T_hs가 quic-go와 quiche보다 11~17 ms 긴 것은 그 실행들에서 signer의 share 계산이 6.8 ms였기 때문이다(나머지는 4.9~5.0 ms). 서버의 차이로 읽으면 안 된다.
+threshold RSA에서 quic-go + daemon과 s2n-quic의 T_hs가 quic-go와 quiche보다 11~17 ms 긴 것은 그 실행들에서 signer 1과 5가 함께 뽑혀 share 계산이 6.8 ms였기 때문이다(나머지는 4.9~5.0 ms). 서버의 차이로 읽으면 안 된다.
 
 ### 4.2 동시 100개
 
@@ -148,7 +148,7 @@ s2n-quic 0.92의 RTT 초깃값은 333 ms다(source의 `DEFAULT_INITIAL_RTT`). RF
 
 - 예측을 미리 적지 않았다.
 - client는 quic-go 하나다.
-- threshold RSA signer의 share 계산 시간이 실행마다 4.9 ms 또는 6.8 ms로 달랐다. 동시 handshake 조건의 threshold RSA 값은 서버끼리 비교할 수 없다.
+- threshold RSA signer의 share 계산 시간이 고른 signer 집합에 따라 4.9 ms 또는 6.8 ms였다. signer 5개에 물리 core 4개를 준 testbed의 제약이다. 동시 handshake 조건의 threshold RSA 값은 서버끼리 비교할 수 없다.
 - s2n-quic의 Ed25519 조건은 rustls를, RSA 조건은 s2n-tls를 쓴다. RSA 조건은 key exchange group도 다르다(X25519). TLS library와 key exchange의 영향을 서버 구현체의 영향과 나누지 못했다.
 - s2n-quic의 rustls 경로에는 TLS offload의 wake-up 누락을 우회하는 code가 들어 있다([worklog.md](worklog.md)). 5절의 꼬리가 이 우회와 관련이 있는지는 확인하지 않았다. s2n-tls 경로의 loss 측정은 별도로 한다.
 - loss 조건은 400회씩이고 qlog로 확인한 것은 s2n-quic의 한 조건, handshake 3개다.

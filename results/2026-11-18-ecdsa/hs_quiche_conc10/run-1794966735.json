@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-ecdsa/hs_quiche_conc10",
+    "--server",
+    "quiche",
+    "--configs",
+    "ecdsa:2:3:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5",
+    "--n",
+    "100",
+    "--conc",
+    "10"
+  ],
+  "images": {
+    "qth-go": "sha256:f75d5e29c6ac7f1284c8d7a9681b08c94a4a71546d46f38eebac21c8b057e79f",
+    "qth-quiche": "sha256:39a4bd0385d5601a4eb70946c1eb62f71923015415c7c7f5e970c3cdad6dfbba"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-ecdsa/hs_quic-go-coordd_conc1",
+    "--server",
+    "quic-go-coordd",
+    "--configs",
+    "ecdsa:2:3:pre,ecdsa:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "100",
+    "--conc",
+    "1"
+  ],
+  "images": {
+    "qth-go": "sha256:d1855a6ad4eade6d211c2ee893d33ca5c9ddbbe43048f42ba87aa539be9f78b7"
+  }
+}

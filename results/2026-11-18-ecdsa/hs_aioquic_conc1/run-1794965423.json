@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-ecdsa/hs_aioquic_conc1",
+    "--server",
+    "aioquic",
+    "--configs",
+    "ecdsa:2:3:pre,ecdsa:3:5:pre",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "100",
+    "--conc",
+    "1"
+  ],
+  "images": {
+    "qth-go": "sha256:56716acc72680c3ab6b86e50d39d5db78317d9e1223596e9cb0f6f7f2ae5ca8e",
+    "qth-aioquic": "sha256:112631144b35a1a8d3117d19efd788a4a748c9c81a73e44f532882862c8624f7"
+  }
+}
