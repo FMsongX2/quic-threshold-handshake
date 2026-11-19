@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-p1-s2n/sweep",
+    "--servers",
+    "s2n-quic",
+    "--delays",
+    "0,1,5,20,50,100,200,500,1200",
+    "--rtts",
+    "1,20,100",
+    "--n",
+    "100"
+  ],
+  "images": {
+    "qth-go": "sha256:1cb6446046a665f7837aba0dd05183dfccfd3bceb9efa0fc51999dd2433c2050",
+    "qth-s2n": "sha256:46cae70abcd2e19aab2517971d418bc695497d3bfb5943f27ec74e557217c5bf"
+  }
+}

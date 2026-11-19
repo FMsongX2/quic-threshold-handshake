@@ -1,0 +1,25 @@
+{
+  "server": "s2n-quic",
+  "client": "quic-go",
+  "rtt_ms": 100.0,
+  "loss_pct": 2.0,
+  "sign_delay_ms": 100,
+  "concurrency": 1,
+  "rate": 0.0,
+  "n": 400,
+  "client_exit_code": 0,
+  "started_unix": 1794979866.5823503,
+  "duration_s": 144.41283130645752,
+  "loadavg_before": [
+    2.1875,
+    2.00439453125,
+    2.05126953125
+  ],
+  "loadavg_after": [
+    1.74951171875,
+    1.9375,
+    2.0185546875
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7"
+}

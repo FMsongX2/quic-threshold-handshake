@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-client-s2n/sweep",
+    "--client",
+    "s2n-quic",
+    "--servers",
+    "quic-go,aioquic,quiche,s2n-quic",
+    "--delays",
+    "0,20,50,100,200,500,1200",
+    "--rtts",
+    "20",
+    "--n",
+    "100"
+  ],
+  "images": {
+    "qth-go": "sha256:33fd504138f5f0d776ffc915dc7cd082000837f0b0137d8a25bff6d88941a615",
+    "qth-s2n": "sha256:72c3345fdcc7f807b9f5142fdaaf54d20a3cc176109356fbd463c1bc505a7f7a",
+    "qth-aioquic": "sha256:3f9a9cd63a7eedc9f42316adbacfcc6a728a356ffcacff771e1f69231833c36b",
+    "qth-quiche": "sha256:924b87f1a0a3f62d839ebcbe6a419aa1a3248002a0f36dc915fb3d580b3a9ec1"
+  }
+}

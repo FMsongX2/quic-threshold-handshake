@@ -1,0 +1,25 @@
+{
+  "server": "aioquic",
+  "client": "s2n-quic",
+  "rtt_ms": 20.0,
+  "loss_pct": 0.0,
+  "sign_delay_ms": 1200,
+  "concurrency": 1,
+  "rate": 0.0,
+  "n": 100,
+  "client_exit_code": 0,
+  "started_unix": 1794980502.7480335,
+  "duration_s": 138.45739722251892,
+  "loadavg_before": [
+    2.09375,
+    1.98876953125,
+    2.0048828125
+  ],
+  "loadavg_after": [
+    2.0703125,
+    1.95556640625,
+    1.98974609375
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7"
+}

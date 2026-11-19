@@ -1,0 +1,5 @@
+server,rtt_ms,loss_pct,sign_delay_ms,concurrency,rate,completed_per_s,n,ok,t_hs_p50,t_hs_p95,t_hs_p99,t_hs_max,first_recv_p50,first_rtt_sample_p50,sent_before_first_recv_mean,sent_before_complete_mean,server_initial_packets_mean,pto_share,max_pto_count,packets_lost_mean,first_recv_kinds,loadavg1_before,loadavg1_after,excess_p50
+aioquic,20.0,0.0,50,100,0.0,7.1,500,500,3138.77,5434.85,7623.43,15603.83,,,,,,,,,,1.7,1.79,
+quic-go,20.0,0.0,50,100,0.0,594.1,500,500,76.38,80.08,80.7,80.9,,,,,,,,,,1.7,1.7,
+quiche,20.0,0.0,50,100,0.0,81.6,500,500,90.62,1094.08,1094.99,1111.59,,,,,,,,,,1.79,1.83,
+s2n-quic,20.0,0.0,50,100,0.0,168.0,500,500,74.15,1090.35,1093.15,1093.28,,,,,,,,,,1.83,1.83,

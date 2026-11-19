@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-client-s2n/concurrency",
+    "--client",
+    "s2n-quic",
+    "--servers",
+    "quic-go,aioquic,quiche,s2n-quic",
+    "--delays",
+    "50",
+    "--rtts",
+    "20",
+    "--concs",
+    "100",
+    "--n",
+    "50",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:23c483bc4ae3bc1aba289cd66c27937853c530ab11162e618bf398444caa0a58",
+    "qth-s2n": "sha256:d3c7b1d03c12e29ebadc19aace72499e9d39abcbd8f5ace779aa42dd2f93a438",
+    "qth-aioquic": "sha256:c9bfb1c3c91ebe8c8fb0693672e1007a1a163ce59e2c38aa272b25b7ed04328c",
+    "qth-quiche": "sha256:1d248357cbc1ddb93bf62bd8a89df4f1c17be8a2e06ea841b083c1f0025f1f8a"
+  }
+}

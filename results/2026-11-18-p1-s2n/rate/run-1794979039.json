@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-p1-s2n/rate",
+    "--servers",
+    "s2n-quic",
+    "--delays",
+    "0,5,20",
+    "--rtts",
+    "20",
+    "--concs",
+    "",
+    "--rates",
+    "50,100,200,400,800,1600",
+    "--rate-seconds",
+    "10",
+    "--client-cpus",
+    "6,7,14,15"
+  ],
+  "images": {
+    "qth-go": "sha256:dbfe1619ef64101a9ee7da6b856ce0c73bdbd19b090dc6cadb95fe37d8766bee",
+    "qth-s2n": "sha256:fd19353de988810e18320e4272521a53673677b3cad8a359d20cf2e1715500fc"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-18-client-s2n/signer_quiche",
+    "--client",
+    "s2n-quic",
+    "--server",
+    "quiche",
+    "--configs",
+    "frost:3:5:pre,rsa:3:5",
+    "--policies",
+    "fastest",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5,50",
+    "--n",
+    "200"
+  ],
+  "images": {
+    "qth-go": "sha256:a1929048199fef63f7580eedc5c69e9dc5b49ffdfdb0bb6393271e7c8fce282b",
+    "qth-s2n": "sha256:a5866c4d5221de8e18ee64ce65555cf41293751249993e29d614f7a9490034f1",
+    "qth-quiche": "sha256:33a1e3ab8758deb76e9db07cabf25431c9b01cf30da114ae2632fbbcd5bfba34"
+  }
+}

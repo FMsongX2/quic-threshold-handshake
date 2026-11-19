@@ -1,0 +1,25 @@
+{
+  "server": "quiche",
+  "client": "s2n-quic",
+  "rtt_ms": 20.0,
+  "loss_pct": 0.0,
+  "sign_delay_ms": 50,
+  "concurrency": 100,
+  "rate": 0.0,
+  "n": 500,
+  "client_exit_code": 0,
+  "started_unix": 1794981348.0649815,
+  "duration_s": 7.035257577896118,
+  "loadavg_before": [
+    1.79248046875,
+    1.80712890625,
+    1.88671875
+  ],
+  "loadavg_after": [
+    1.8310546875,
+    1.81396484375,
+    1.88818359375
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7,14,15"
+}
