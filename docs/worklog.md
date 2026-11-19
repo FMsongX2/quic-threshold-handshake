@@ -391,17 +391,37 @@ s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 
 2. p99의 순서는 D_sign 측정과 같다. 같은 t에서 hedge4(또는 first)의 p99가 fastest보다 낮다.
 3. hedge와 first의 T_hs p99는 D_sign의 p99에 21 ms를 더한 값과 5 ms 안에서 같다(t = 2 hedge4 41.6 ms, t = 3 hedge4 45.7 ms, threshold RSA first + nudge 47.4 ms, 배치 5/5/5/20/80의 30.5 ms와 43.0 ms). fastest와 nudge의 p99는 표본 10개로 정해지고 D_sign 측정에서도 76~103 ms로 흩어졌으므로 25 ms 안에서 같다고만 예측한다.
 
+## 2026-11-19
+
+### s2n-quic 서버와 두 번째 client의 결과
+
+대기열 5번이 2026-11-18 15:11에 끝났다. 조건 108개가 모두 정상 종료했다. 결과는 [results-phase1-s2n.md](results-phase1-s2n.md)에 적었다.
+
+- s2n-quic 서버에서도, 두 번째 client로 재도 T_hs는 주입한 지연만큼만 늘었다. 서버 4개와 client 2개의 조합에서 덧셈이 성립한다.
+- s2n-quic 서버는 handshake가 몰릴 때 가장 안정적이었고(초당 1,600개에서 T_hs 변화 없음), client link의 loss에는 가장 약했다. ServerHello가 손실되면 client가 ClientHello를 다시 보내도 ACK만 돌려주고 자신의 timer를 기다렸다. s2n-tls 경로와 rustls 경로에서 같았으므로 TLS library가 아니라 s2n-quic의 동작이다.
+- 예측 6(두 번째 client에서 quic-go 서버는 약 1초, quiche는 RTT_c의 3배쯤 늦어진다)은 틀렸다. quic-go 서버에서는 약 200 ms 늦어진 handshake가 나왔다. client의 timer가 1초이므로 서버가 스스로 다시 보낸 것으로 본다. quic-go client로 잰 측정에서는 client와 서버의 timer가 둘 다 200 ms여서 "client가 200 ms를 기다렸다"고만 읽었다. client 구현체를 바꾸어야 드러나는 것이었다.
+- 두 번째 client에서는 네 서버 모두 handshake의 1~3.5%가 약 1초 늦어졌다. 이 client는 qlog를 남기지 않아 원인을 packet 단위로 보지 못했다. 두 번째 client를 만들 때 qlog를 빼기로 한 결정의 비용이다.
+- 두 번째 client로 handshake 100개를 함께 시작하면 loss가 없어도 quiche 서버에서 49%, s2n-quic 서버에서 6%가 약 1.09초 걸렸다. client는 연결마다 socket을 따로 열므로 client의 수신 buffer가 넘친 것은 아니다. 서버 socket의 수신 buffer가 넘쳤을 가능성을 생각했으나 확인하지 않았다.
+- 정해진 rate의 측정은 측정용 checkout의 집계 script가 예전 것이어서 rate 지표가 빠졌다. 압축한 기록으로 다시 집계했다. 이 묶음의 요약에는 qlog에서 뽑는 열이 비어 있다.
+
+### Phase 3 결과의 정리
+
+- 가설 H4의 판정 기준(모델의 상위 3개 순위)은 24개 묶음 모두에서 충족됐지만, 15개 묶음에서 상위 3개 순위가 정책 전부였다. 기준을 정할 때 "이 기준에서 틀릴 수 있는 경우가 몇 개인가"를 세지 않았다. 결과 문서에는 기준의 충족 여부와 함께 1순위의 일치 수(11개)와 regret을 적었다.
+- 모델에서 지연 hedge의 넓히는 단계가 구현과 달랐다. 넓힐 때 시작하는 것은 처음의 집합이 아닌 부분집합들이므로 여유 signer의 응답이 반드시 필요하다. `harness/model.py`를 고쳤다. 측정 전에 commit한 예측 file은 그대로 두었고, 고친 모델의 값은 `results/2026-11-18-phase3/policies-model-vs-measured.csv`에 따로 넣었다.
+- 결과 문서의 구성 비교표에 정책별 중앙값 대신 묶음의 최저 중앙값을 적은 곳이 있었다. hedge5는 share를 30개 계산해 중앙값이 1.2 ms 길다. 표를 그 정책의 값으로 고쳤다.
+
 ### 남은 일
 
-- threshold ECDSA를 구현하지 않았다. 공개 WebPKI에 쓸 수 있는 scheme 중 측정한 것은 threshold RSA뿐이다.
 - signer와 coordinator의 상호 인증을 구현하지 않았다. signer 연결의 TLS와 QUIC은 자체 서명 인증서를 쓰고 chain을 검증하지 않는다.
-- s2n-quic 서명 지연 서버, 두 번째 client 구현체, RTT_c 1 ms와 100 ms 조건을 측정하지 않았다.
-- aioquic과 quiche 서버에는 coordinator를 붙이지 않았다. 실제 signer를 붙인 handshake는 quic-go 서버에서만 측정했다.
-- signer에 CPU를 여러 개 주거나 복제본을 둔 조건, signer 배치를 여러 가지로 바꾼 조건, RTT_s에 jitter를 준 조건을 측정하지 않았다.
-- Phase 3의 최적화 문제를 풀지 않았다.
-- signer 장애 조건과 RTT_s가 변하는 조건에서 hedge와 nudge를 측정하지 않았다.
-- QUIC 연결 수를 동시 요청 수와 RTT_s에 맞춰 정하는 규칙을 만들지 않았다. 연결 2개와 3개, 동시 handshake 100개가 아닌 조건을 측정하지 않았다.
+- 응답 없는 signer를 선택에서 빼고 다시 확인하는 기능이 없다. fastest는 죽은 signer를 계속 고르고, 한 번 느려져 빠진 signer의 회복을 알지 못한다.
+- hedge 예산을 장애 때 푸는 규칙이 없다.
+- signer 복제본, 분산 key 생성, nonce commitment와 presignature의 장애 뒤 관리를 구현하지 않았다.
+- threshold ECDSA는 GG20만 측정했다. 집합을 고정한 조건과 더 새로운 protocol을 측정하지 않았다.
+- 모델에 QUIC의 긴 손실 복구와 TCP의 연쇄 지연이 없다. "여유 signer" 규칙을 다른 배치로 검증하지 않았다.
+- s2n-quic 서버가 손실된 ServerHello를 다시 보내는 시점, 두 번째 client에서 handshake가 겹칠 때 1초가 걸리는 원인, quiche 서버의 동시 100개 조건에서 p99가 튄 원인을 확인하지 않았다.
+- signer에 물리 core를 하나씩 준 조건을 측정하지 못했다. signer 5개 가운데 둘이 물리 core를 나누어 쓴다.
 - TCP의 손실 복구 동작과 congestion window를 packet 단위로 확인하지 않았다. QUIC은 coordinator 쪽 qlog로 확인했다.
 - quic-go가 아닌 QUIC 구현체를 signer 연결에 쓰지 않았다. congestion control과 timer의 초깃값이 구현체마다 다르다.
 - 0-RTT QUIC이 handshake가 몰릴 때 30~42 ms 느린 원인을 분해하지 않았다.
-- nudge의 지연 시간에 signer 계산 시간을 반영하지 않았다.
+- nudge의 지연 시간에 signer 계산 시간을 반영하지 않았다. RTT_s의 jitter가 크면 nudge가 서명마다 발동한다.
+- 실제 WAN에서 측정하지 않았다.

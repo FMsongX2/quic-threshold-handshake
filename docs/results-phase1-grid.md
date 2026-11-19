@@ -76,7 +76,7 @@ client link에 방향마다 loss 2%를 주고 handshake를 하나씩 400회 했�
 
 늦어진 handshake의 client qlog를 조건 6개에서 열어 원인을 확인했다.
 
-- quic-go 서버에서 200 ms 늦어진 handshake는 대부분 서버의 첫 Initial(ServerHello)이 손실된 경우였다. RTT_c 1 ms, 지연 0의 10개 중 9개, RTT_c 20 ms, 지연 20 ms의 13개 중 10개다. client는 Handshake packet을 받았지만 key가 없어 쌓아 두었고, RTT 표본이 없어 처음의 probe timeout 200 ms를 기다린 뒤 Initial을 다시 보냈다.
+- quic-go 서버에서 200 ms 늦어진 handshake는 대부분 서버의 첫 Initial(ServerHello)이 손실된 경우였다. RTT_c 1 ms, 지연 0의 10개 중 9개, RTT_c 20 ms, 지연 20 ms의 13개 중 10개다. client는 Handshake packet을 받았지만 key가 없어 쌓아 두었고, RTT 표본이 없어 처음의 probe timeout 200 ms를 기다린 뒤 Initial을 다시 보냈다. quic-go 서버도 RTT 표본이 없을 때의 probe timeout이 200 ms다. probe timeout이 약 1초인 두 번째 client로 재도 quic-go 서버에서는 약 200 ms 늦어진 handshake가 나왔다([results-phase1-s2n.md](results-phase1-s2n.md) 4.3절).
 - quiche와 aioquic은 client의 첫 Initial을 받자마자 ACK를 담은 작은 packet을 먼저 보냈다. client는 이 packet으로 RTT 표본을 얻는다. 그 뒤의 packet이 손실되어도 client의 probe timeout이 RTT_c의 3배쯤이어서 RTT_c 1 ms에서는 3~17 ms, 20 ms에서는 약 61 ms 뒤에 복구됐다. quiche는 ServerHello도 서명 전에 보내고, aioquic은 ServerHello를 서명이 끝난 뒤에 보낸다.
 - quic-go 서버도 client의 Initial 2개 중 하나만 받으면 받은 것을 ACK로 확인해 준다. 이 경우 client가 표본을 얻어 61 ms 뒤에 복구했다(RTT_c 20 ms, 지연 20 ms에서 21개).
 - aioquic에서 300 ms 늦어진 handshake는 서명이 끝난 뒤 서버가 보낸 Initial이 손실된 경우였다. client는 서명을 기다리는 동안 보낸 Initial이 모두 확인된 상태여서 다시 보낼 것이 없었고, 서버가 302 ms 뒤에 다시 보냈다. 지연이 없으면 client의 probe timeout이 먼저 나가므로 이 일이 생기지 않았다.

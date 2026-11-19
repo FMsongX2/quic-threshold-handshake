@@ -79,6 +79,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 - FROST의 signature share는 round 2에 참여하는 signer 집합의 commitment 목록에 묶여 있다[6]. 따라서 n개 전체에 요청을 보내고 먼저 도착한 t개를 쓰는 방식은 그대로 적용되지 않으며, signer 집합을 먼저 고르거나 서로 다른 집합으로 여러 세션을 동시에 진행해야 한다. FROST는 robustness를 제공하지 않아 참여자 하나가 응답하지 않으면 그 세션은 실패한다. ROAST는 이 문제를 다루는 wrapper protocol이다[14]. 이 연구는 서로 다른 signer 집합의 세션을 동시에 진행하는 hedge 정책을 구현해 측정했다([results-phase3-hedging.md](results-phase3-hedging.md), [results-phase3-adaptive.md](results-phase3-adaptive.md)).
 - Shoup threshold RSA의 signature share는 signer마다 독립적으로 계산되므로, n개 전체에 요청하고 먼저 도착한 유효한 share t개를 결합할 수 있다[11].
 - nonce commitment와 presignature는 한 번만 써야 한다. 같은 값을 두 서명에 쓰면 서명 키가 드러난다. precomputation을 쓰는 구성은 미리 만든 값의 사용 여부를 signer가 장애 후에도 잃지 않도록 관리해야 하며, 이 관리 비용도 측정 대상에 넣는다.
+- 이 연구가 측정한 threshold ECDSA는 GG20이다. 서명 하나에 요청 round가 6개이고 presignature가 있으면 1개다. presignature는 그것을 만든 signer 집합에 묶인다([results-phase2-ecdsa.md](results-phase2-ecdsa.md)). 표의 DKLs23과 CGGMP21은 측정하지 않았다.
 
 ## 5. 연구 질문과 가설
 
@@ -91,7 +92,7 @@ TLS 1.3 client는 표준 SignatureScheme으로 서명을 검증한다. threshold
 - 가설 H1: 동기형 hook을 쓰는 구현체에서는 서명 호출이 그 구현체의 실행 단위(thread, event loop, task)를 D_sign 동안 점유한다. 실행 단위 하나가 여러 연결을 처리하는 구현체에서는 동시에 진행되는 다른 handshake의 T_hs도 함께 늘어난다.
 - 예측: 동시 handshake 수를 늘리면 비동기형 hook 구현체의 T_hs 중앙값은 유지되고, 실행 단위를 공유하는 동기형 hook 구현체의 T_hs 중앙값은 동시 handshake 수에 비례해 증가한다.
 - 최소 실험: 서명 hook에 고정 지연 50 ms를 넣고 동시 handshake 수 1, 10, 100에서 T_hs 분포를 비교한다.
-- 판정: pilot 측정에서 예측대로였다([results-phase1-pilot.md](results-phase1-pilot.md) 5절).
+- 판정: pilot 측정에서 예측대로였다([results-phase1-pilot.md](results-phase1-pilot.md) 5절). 실제 signer를 붙인 측정에서도 같았다. D_sign 50 ms, 동시 handshake 10개에서 aioquic의 T_hs 중앙값은 283~290 ms였고 quic-go, quiche, s2n-quic은 71~74 ms였다([results-phase2-implementations.md](results-phase2-implementations.md) 4절). 비동기형인 s2n-quic은 동시 100개와 초당 1,600개의 rate에서도 T_hs를 유지했다([results-phase1-s2n.md](results-phase1-s2n.md) 3절).
 
 ### RQ2. 서명 지연의 분해
 
@@ -107,7 +108,8 @@ RFC 9002는 RTT sample이 없을 때 초기 RTT를 333 ms로 둘 것을 권고�
 - 가설 H3: D_sign이 client의 PTO보다 짧으면 T_hs는 서명 지연이 없을 때의 값에 D_sign을 더한 값과 같다. D_sign이 PTO보다 길면 client가 probe packet을 보내고, 구현체에 따라 서버의 재전송이나 추가 대기가 생겨 T_hs의 증가량이 D_sign과 달라진다.
 - 예측: RTT_c가 20 ms일 때, ServerHello나 ACK를 먼저 보내는 구현체에서는 D_sign이 약 60 ms를 넘는 지점부터 client probe packet이 관측된다. 먼저 보내지 않는 구현체에서는 D_sign이 약 1초를 넘는 지점부터 관측된다.
 - 최소 실험: 서명 hook에 넣는 지연을 0 ms에서 1,200 ms까지 바꾸면서 T_hs와 client·server의 재전송 packet 수를 qlog로 기록한다.
-- 판정: pilot 측정에서 T_hs의 증가량은 D_sign이 PTO보다 긴 조건에서도 D_sign과 1 ms 안에서 같았다. probe packet은 관측됐으나 "T_hs의 증가량이 D_sign과 달라진다"는 부분은 기각한다. probe가 시작되는 지연은 client 구현체의 초기 RTT에 따라 달랐다([results-phase1-pilot.md](results-phase1-pilot.md) 4절, 7절).
+- 판정: T_hs의 증가량은 D_sign이 PTO보다 긴 조건에서도 D_sign과 1 ms 안에서 같았다. RTT_c 1, 20, 100 ms, 서버 구현체 4개, client 구현체 2개에서 모두 그랬다. probe packet은 관측됐으나 "T_hs의 증가량이 D_sign과 달라진다"는 부분은 기각한다. probe가 시작되는 지연은 client 구현체의 초기 RTT에 따라 달랐다([results-phase1-pilot.md](results-phase1-pilot.md) 4절, 7절, [results-phase1-grid.md](results-phase1-grid.md) 3절, [results-phase1-s2n.md](results-phase1-s2n.md)).
+- 서명 지연과 무관하게, client link에 loss가 있으면 구현체의 손실 복구가 T_hs의 꼬리를 정했다. 늦어지는 크기는 RTT 표본이 있으면 RTT_c의 3배쯤이고, 없으면 구현체의 초깃값인 200 ms(quic-go)나 약 1초(s2n-quic)였다([results-phase1-grid.md](results-phase1-grid.md) 4절, [results-phase1-s2n.md](results-phase1-s2n.md) 3.3절, 4.3절).
 
 instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 만든다는 측정 결과가 이미 있다[16]. 인증서 chain이 anti-amplification limit을 넘으면 round trip이 추가된다는 결과도 있다[15]. 이 연구는 두 효과가 서명 지연과 겹칠 때의 동작을 본다.
 
@@ -116,7 +118,7 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 - 가설 H4: t의 하한과 failure domain 수의 하한이 주어지면, T_hs의 p99를 최소화하는 구성은 signer 배치와 signer 선택 정책으로 결정되며, signer별 응답 시간 분포의 order statistic으로 만든 모델이 실측 순위를 재현한다.
 - 예측: 모델이 예측한 상위 3개 구성 안에 실측 p99가 가장 낮은 구성이 들어간다.
 - 최소 실험: signer 5개를 RTT_s가 서로 다른 세 region에 배치하고, t가 2와 3일 때 가능한 signer 선택 정책을 전수 측정해 모델 예측과 비교한다.
-- 중간 결과: signer 5개의 RTT_s를 서로 다르게 둔 한 가지 배치에서 D_sign을 측정했고 예측과 어긋나지 않았다. loss가 있을 때의 순위는 loss를 넣지 않은 모델로 설명되지 않았다. 판정은 Phase 3으로 미룬다([results-phase2-signer.md](results-phase2-signer.md) 5절, 6절).
+- 판정: signer 5개를 세 region에 두는 배치 5가지와 t = 2, 3, 4에서 정책을 전수 측정했다([results-phase3-optimization.md](results-phase3-optimization.md)). 가설의 앞부분은 측정과 맞았다. loss가 있을 때 가장 낮은 p99는 여유 signer의 위치로 설명됐고 정책에 따라 크게 달랐다. 뒷부분은 일부만 맞았다. 미리 정한 기준(상위 3개 순위)은 24개 묶음 모두에서 충족됐지만, 15개 묶음에서 상위 3개 순위가 정책 전부를 포함해 기준이 가설을 가르지 못했다. 모델의 1순위가 실측 최저 정책과 일치한 묶음은 11개였다. 모델은 D_sign의 중앙값을 2.6 ms 안에서 맞혔고 p99를 낮게 잡았다.
 
 ## 6. 범위
 
@@ -140,7 +142,8 @@ instant ACK이 조건에 따라 불필요한 재전송이나 더 긴 대기를 �
 | --- | --- | --- |
 | "하위 서버 간 핸드셰이크 지연시간"의 해석 | signer들이 서명에 협력하느라 생기는 지연이 client가 관측하는 QUIC handshake 시간에 주는 영향으로 해석했다. coordinator와 signer 사이 연결을 맺는 비용은 "signer 간 transport" 변인으로 포함했고, TCP·TLS·QUIC·0-RTT QUIC의 연결 수립 비용을 측정했다([results-phase3-signer-transport.md](results-phase3-signer-transport.md) 6절). | signer끼리 맺는 handshake 자체가 주 측정 대상이라면 T_hs의 정의와 RQ3이 바뀐다. |
 | 산출물의 형태와 마감 | 빅데이터처리 과목의 term project이며 14주차에 5분 발표와 5분 질의응답을 한다. 보고서 제출 여부는 확인하지 못했다. | 구현체 수와 실험 격자의 크기를 정한다. |
-| 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을 쓴다. s2n-quic은 아직 측정하지 않았다. | RQ1과 RQ3의 비교 폭을 정한다. |
-| signature scheme의 우선순위 | FROST와 Shoup threshold RSA를 구현해 측정했다. threshold ECDSA는 아직 구현하지 않았다. | 공개 WebPKI에 적용 가능한 scheme이 threshold RSA 하나로 남는지가 달라진다. |
+| 초기 구현체 | 서버는 비동기형 Cloudflare quiche·s2n-quic과 동기형 quic-go·aioquic을, client는 quic-go와 s2n-quic을 측정했다. | 결정됨. 다른 구현체를 더하면 RQ1과 RQ3의 비교 폭이 넓어진다. |
+| signature scheme의 우선순위 | FROST, Shoup threshold RSA, threshold ECDSA(GG20)를 구현해 측정했다. threshold ECDSA는 갱신이 멈춘 library의 오래된 protocol이다([results-phase2-ecdsa.md](results-phase2-ecdsa.md)). | 공개 WebPKI에 대한 결론은 threshold RSA에 기댄다. 새 threshold ECDSA protocol(CGGMP21, DKLs23)의 구현으로 다시 재면 ECDSA 쪽 결론이 달라질 수 있다. |
 | hedge 구성의 안전성 | FROST가 동시 세션에서 안전하다는 성질에 기대며, 따로 검토받지 않았다. | 결과를 실제 배치에 대한 권고로 쓸 수 있는지가 달라진다. |
-| coordinator와 signer 사이 연결 | signer당 유지되는 QUIC 연결 4개를 기본 구성으로 정했다([results-phase3-signer-transport.md](results-phase3-signer-transport.md)). signer 인증서의 chain은 검증하지 않는다. | signer와 coordinator의 상호 인증을 넣으면 연결 수립 비용이 달라진다. 연결 수를 동시 요청 수와 RTT_s에 맞춰 정하는 규칙이 필요하다. |
+| coordinator와 signer 사이 연결 | signer당 유지되는 QUIC 연결 4개를 기본 구성으로 정했다([results-phase3-signer-transport.md](results-phase3-signer-transport.md)). 동시 handshake 300개, loss 5%, RTT_s 50 ms까지 이 수로 충분했다([results-phase3-robustness.md](results-phase3-robustness.md) 3절). signer 인증서의 chain은 검증하지 않는다. | signer와 coordinator의 상호 인증을 넣으면 연결 수립 비용이 달라진다. |
+| signer 장애의 처리 | 구현하지 않았다. fastest는 응답 없는 signer를 계속 고르고, hedge 예산은 장애 때 서명을 실패시킨다([results-phase3-robustness.md](results-phase3-robustness.md) 4절). | 가용성 제약을 넣은 구성 비교가 달라진다. 응답 없는 signer를 선택에서 빼고 다시 확인하는 기능이 필요하다. |
