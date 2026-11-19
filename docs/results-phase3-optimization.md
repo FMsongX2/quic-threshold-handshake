@@ -1,6 +1,6 @@
 # Phase 3 결과: 지연 모델의 검증과 구성 비교
 
-측정일은 2026년 11월 18일이다. 용어와 기호는 [problem-definition.md](problem-definition.md) 2절, 실험 설계는 [experiment-design.md](experiment-design.md) 4절과 5절을 따른다. 측정 전의 예측은 [worklog.md](worklog.md)의 "Phase 3의 모델과 예측"과 `results/2026-11-18-phase3/predictions-*.csv`에 있다. 원자료는 `results/2026-11-18-phase3`에 있다.
+측정일은 2026년 11월 18일이고, 7절의 handshake 측정은 11월 19일이다. 용어와 기호는 [problem-definition.md](problem-definition.md) 2절, 실험 설계는 [experiment-design.md](experiment-design.md) 4절과 5절을 따른다. 측정 전의 예측은 [worklog.md](worklog.md)의 "Phase 3의 모델과 예측", "Phase 3 측정과 검증 측정의 예측"과 `results/2026-11-18-phase3/predictions-*.csv`에 있다. 원자료는 `results/2026-11-18-phase3`에 있다.
 
 ## 1. 배경과 방법
 
@@ -39,6 +39,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 나누어 두었다. 배�
 5. loss 2%에서 정책 가운데 가장 낮은 D_sign의 p99는 "(t + 1)번째로 가까운 signer의 RTT_s"와 "2 × t번째 signer의 RTT_s + 27 ms" 가운데 작은 값에 0.6~8.3 ms를 더한 값이었다. FROST와 QUIC 연결의 15개 묶음 모두에서 그랬다. 여유 signer가 어디에 있는지가 꼬리를 정한다.
 6. region 하나가 통째로 침해되어도 안전하고 region 하나가 사라져도 서명할 수 있는 구성은 signer 5개에서 t = 3이고 region별 signer 수가 2, 2, 1인 배치다. 가까운 두 region에 2개씩 둔 배치(5/5/20/20/80)의 D_sign은 FROST에서 중앙값 20.7 ms, p99 24.7 ms(hedge4), threshold RSA에서 중앙값 24.2 ms, p99 26.4 ms(first + nudge)다. 같은 구성에서 fastest만 쓰면 p99가 85.6 ms와 100.7 ms다.
 7. region 안전성의 비용은 중앙값에서 나타났다. fastest의 중앙값은 가장 가까운 region에 signer 3개를 두는 t = 3 구성에서 5.4 ms이고, region 안전한 구성에서 20.4 ms다. 두 번째로 가까운 region의 RTT_s가 하한이 된다. 가장 낮은 p99는 22.0 ms와 24.7 ms로 비슷했다.
+8. 고른 구성을 실제 handshake로 다시 쟀을 때 T_hs는 "D_sign + 21 ms"였다. region 안전한 구성(t = 3, hedge4)의 T_hs는 중앙값 42.2 ms, p99 46.3 ms이고, 같은 구성에서 fastest만 쓰면 p99가 90.1 ms다. hedge와 first의 D_sign p99는 두 측정에서 1.5 ms 안에서 같았다. fastest의 p99는 같은 조건을 두 번 잰 값이 51 ms까지 달랐다.
 
 ## 3. loss가 없을 때
 
@@ -196,7 +197,34 @@ hedge는 서명마다 여러 부분집합의 share를 계산한다. 배치 5/5/2
 - 공개 WebPKI에 쓸 수 있는 threshold RSA는 region 안전한 구성(t = 3)에서 FROST보다 중앙값이 3.5 ms, p99가 1.7 ms 길었다. first는 share 5개를 계산한다.
 - TCP 연결 하나로는 t = 3의 p99가 QUIC의 약 2배였다. 5.3절의 셋째 원인이다. TCP에서 fastest의 p99는 225.8~268.0 ms다.
 
-## 7. 예측과 판정
+## 7. 실제 handshake에서의 확인
+
+6절까지는 coordinator만 실행해 D_sign을 잰 결과다. 고른 구성과 그 옆의 fastest를 quic-go 서버의 인증서 key로 붙여 handshake로 다시 쟀다. RTT_c는 20 ms, signer link의 loss는 2%, signer 연결은 QUIC 4개다. handshake를 하나씩 1,000회 했고 12개 조건 모두에서 전부 성공했다.
+
+T_hs와 D_sign 열은 중앙값 / p95 / p99(ms)다. "앞선 측정의 D_sign"은 4절과 6절에 쓴 값이다.
+
+| 배치 | scheme, t | 정책 | T_hs | D_sign | 앞선 측정의 D_sign |
+| --- | --- | --- | --- | --- | --- |
+| 5/5/20/20/80 | FROST, 2 | fastest | 26.5 / 59.0 / 65.3 | 5.5 / 37.9 / 44.2 | 5.3 / 38.1 / 95.2 |
+| 5/5/20/20/80 | FROST, 2 | hedge4 | 26.7 / 41.6 / 41.9 | 5.7 / 20.6 / 20.8 | 5.5 / 20.5 / 20.6 |
+| 5/5/20/20/80 | FROST, 3 | fastest | 41.6 / 62.0 / 90.1 | 20.5 / 41.0 / 69.0 | 20.4 / 55.0 / 85.6 |
+| 5/5/20/20/80 | FROST, 3 | fastest + nudge | 42.0 / 64.7 / 95.7 | 20.6 / 43.2 / 74.2 | 20.4 / 43.1 / 73.3 |
+| 5/5/20/20/80 | FROST, 3 | hedge4 | 42.2 / 44.1 / 46.3 | 20.9 / 21.8 / 25.1 | 20.7 / 21.1 / 24.7 |
+| 5/5/20/20/80 | FROST, 3 | hedge4d1.5 | 41.8 / 67.2 / 75.6 | 20.6 / 45.8 / 54.2 | 20.5 / 53.0 / 53.6 |
+| 5/5/20/20/80 | FROST, 4 | fastest | 42.0 / 90.0 / 124.3 | 20.8 / 68.8 / 103.1 | 20.6 / 69.2 / 102.9 |
+| 5/5/20/20/80 | FROST, 4 | fastest + nudge | 41.8 / 94.4 / 95.8 | 20.7 / 73.3 / 74.5 | 20.6 / 73.2 / 75.3 |
+| 5/5/20/20/80 | threshold RSA, 3 | fastest | 45.2 / 70.8 / 94.1 | 24.2 / 49.8 / 73.0 | 24.2 / 71.6 / 100.7 |
+| 5/5/20/20/80 | threshold RSA, 3 | first + nudge | 45.2 / 46.1 / 48.6 | 24.2 / 25.0 / 27.9 | 24.2 / 25.3 / 26.4 |
+| 5/5/5/20/80 | FROST, 2 | hedge4 | 26.6 / 28.7 / 31.6 | 5.6 / 7.3 / 10.7 | 5.6 / 6.2 / 9.5 |
+| 5/5/5/20/80 | FROST, 3 | hedge5 | 27.7 / 42.2 / 43.3 | 6.6 / 21.3 / 22.0 | 6.6 / 21.2 / 22.0 |
+
+- T_hs 중앙값에서 D_sign 중앙값을 뺀 값은 21.00~21.37 ms였다. 서명 지연이 T_hs에 그대로 더해지는 것은 이 구성들에서도 같다.
+- hedge와 first를 쓴 5개 조건에서 D_sign의 p99는 앞선 측정과 1.5 ms 안에서 같았고, T_hs의 p99는 "앞선 측정의 D_sign p99 + 21 ms"와 1.2 ms 안에서 같았다.
+- region 안전한 구성(배치 5/5/20/20/80, t = 3)의 T_hs p99는 FROST의 hedge4에서 46.3 ms, threshold RSA의 first + nudge에서 48.6 ms다. 같은 구성의 fastest는 90.1 ms와 94.1 ms다.
+- fastest의 p99는 측정마다 달랐다. 같은 조건의 D_sign p99가 FROST t = 2에서 95.2 ms와 44.2 ms, t = 3에서 85.6 ms와 69.0 ms, threshold RSA에서 100.7 ms와 73.0 ms였다. p95는 t = 2에서 38.1 ms와 37.9 ms로 같았다. 5.3절의 "더 오래 걸리는 복구"가 서명의 1~3%에 있어, 표본 1,000개의 p99가 그 경계에 놓인다. fastest의 p99는 "2r + 27 ms 이상이고 그보다 60 ms쯤 길 수 있다"는 정도로 읽어야 한다.
+- t = 3에서 fastest와 nudge의 순서가 앞선 측정과 바뀌었다(90.1 ms와 95.7 ms). 두 정책의 차이가 위의 흔들림보다 작다. 그 밖의 순서는 같았다.
+
+## 8. 예측과 판정
 
 | 예측 | 결과 | 판정 |
 | --- | --- | --- |
@@ -205,25 +233,28 @@ hedge는 서명마다 여러 부분집합의 share를 계산한다. 배치 5/5/2
 | 여유 signer가 먼 region에 있으면 지연 hedge나 nudge가 가장 낮다(5/5/20/20/80의 t = 2에서 지연 hedge 15.0 ms). | hedge4가 20.6 ms로 가장 낮았고 지연 hedge는 31.0 ms였다. 모델이 지연 hedge를 잘못 계산했다. | 틀림 |
 | fastest만 쓰면 QUIC에서 p99가 "2r + 27 ms"다(37.3, 67.3, 187.3 ms). | p95가 이 값이었다(38.1, 68.0, 188.8 ms). p99는 51.7~244.4 ms로 더 길었다. | 틀림 |
 | 모델의 상위 3개 순위 안에 실측 p99가 가장 낮은 정책이 들어간다(H4의 판정 기준). | 24개 묶음 모두 | 충족했으나 기준이 가르지 못함 |
+| (7절) T_hs 중앙값은 앞선 측정의 D_sign 중앙값에 21.0 ms를 더한 값과 0.5 ms 안에서 같다. | 12개 조건 중 11개. 차이는 −0.02~0.58 ms. | 대체로 맞음 |
+| (7절) p99의 순서는 D_sign 측정과 같고, 같은 t에서 hedge4나 first의 p99가 fastest보다 낮다. | hedge4와 first는 세 묶음 모두에서 낮았다. t = 3에서 fastest와 nudge의 순서가 바뀌었다. | 대체로 맞음 |
+| (7절) hedge와 first의 T_hs p99는 D_sign p99에 21 ms를 더한 값과 5 ms 안에서 같다. fastest와 nudge는 25 ms 안에서 같다. | hedge와 first 5개는 0.3~1.2 ms. fastest와 nudge 6개 중 4개가 25 ms 안이었고, 2개는 51 ms와 28 ms 낮았다. | hedge와 first는 맞음, fastest는 일부 틀림 |
 
 가설 H4의 판정은 다음과 같다. "T_hs의 p99를 최소화하는 구성이 signer 배치와 signer 선택 정책으로 결정된다"는 앞부분은 측정과 맞았다. 최저 p99는 여유 signer의 위치로 설명됐고, 같은 배치와 t에서도 정책에 따라 크게 달랐다(배치 5/5/20/20/80의 t = 3에서 24.7 ms와 85.6 ms). "모델이 실측 순위를 재현한다"는 뒷부분은 일부만 맞았다. 모델은 중앙값을 FROST에서 1.3 ms, threshold RSA에서 2.6 ms 안에서 맞혔고 hedge가 유리한 조건을 맞혔지만, 1순위가 실측 최저와 일치한 묶음은 24개 중 11개였다.
 
-## 8. 한계
+## 9. 한계
 
 - 판정 기준이 너무 넓었다. 측정 전에 기준 아래에서 틀릴 수 있는 경우가 몇 개인지 세어 보지 않았다.
-- D_sign만 측정했다. 실제 handshake에서의 확인은 별도 측정으로 한다.
+- 1절부터 6절까지는 D_sign만 측정했다. 실제 handshake로 확인한 것은 7절의 12개 조건이며 서버는 quic-go 하나다.
 - signer 5개, region 3개, RTT_s 5·20·80 ms 한 가지 조합이다. 6.2절의 규칙은 이 조합에서만 확인했다.
-- loss는 2% 하나이고 서로 독립인 손실이다. 조건마다 서명 1,000개이므로 p99는 표본 10개로 정해진다. 같은 조건의 반복 측정이 없어 p99의 흔들림을 재지 못했다. nudge가 무관해야 하는 조건(t번째 signer 80 ms)에서 fastest와 nudge의 p99가 190.6 ms와 282.9 ms로 달랐던 것이 그 크기를 짐작하게 한다.
+- loss는 2% 하나이고 서로 독립인 손실이다. 조건마다 서명 1,000개이므로 p99는 표본 10개로 정해진다. 같은 조건을 두 번 잰 것은 7절의 12개뿐이다. 그 결과 fastest의 p99는 두 측정이 51 ms까지 달랐다. 5절의 순위 비교는 조건마다 한 번 잰 p99로 한 것이어서, fastest와 nudge가 얽힌 순위와 regret은 그만큼 흔들린다. hedge와 first의 p99는 두 측정이 1.5 ms 안에서 같았다.
 - 서명을 하나씩 요청했다. 요청이 겹치는 조건, signer 장애, RTT_s의 변화는 모델에 없다. 그 조건의 측정은 [results-phase3-robustness.md](results-phase3-robustness.md)에 있다.
 - 5.3절의 둘째 원인은 추정이다.
 - threshold ECDSA는 서명 rate 제약과 집합 전환 비용이 모델에 없어 비교에서 뺐다([results-phase2-ecdsa.md](results-phase2-ecdsa.md)).
 - signer 1과 5가 같은 물리 core를 써서 threshold RSA의 first가 약 2 ms 길게 나왔다.
 - 최적화 문제의 비용 제약과 가용성 제약은 식에 넣어 풀지 않았다. 구성 수가 적어 전수 측정한 값을 표로 비교했다.
 
-## 9. 설계에 주는 영향
+## 10. 설계에 주는 영향
 
 - 서명 구성의 중앙값은 계산으로 정할 수 있다. t번째로 가까운 signer의 RTT_s에 scheme의 계산 시간을 더하면 된다.
 - 꼬리는 여유 signer의 위치가 정한다. t번째 signer와 같은 region에 signer를 하나 더 두는 것이 정책을 바꾸는 것보다 효과가 크다. 그 signer가 있을 때 hedge나 first를 쓰면 loss 2%에서도 p99가 중앙값보다 2~7 ms만 길었다.
-- region 안전성과 낮은 꼬리를 함께 얻으려면 signer 5개에서 t = 3, 배치 (2, 2, 1)에 hedge4 또는 threshold RSA의 first를 쓴다. 이때 D_sign의 p99는 24.7~26.4 ms다.
+- region 안전성과 낮은 꼬리를 함께 얻으려면 signer 5개에서 t = 3, 배치 (2, 2, 1)에 hedge4 또는 threshold RSA의 first를 쓴다. 이때 D_sign의 p99는 24.7~26.4 ms이고, RTT_c 20 ms에서 잰 T_hs의 p99는 46.3~48.6 ms다.
 - 모델은 구성을 고르는 도구로는 부족하다. 중앙값과 "hedge가 유리한 조건"까지만 믿을 수 있고, 꼬리의 크기는 측정해야 한다.
 - signer 연결은 QUIC이 유리하다. TCP 연결 하나에서는 hedge와 first를 써도 t = 3의 p99가 QUIC의 약 2배였다.

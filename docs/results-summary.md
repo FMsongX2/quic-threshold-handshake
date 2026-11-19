@@ -82,7 +82,8 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 - 중앙값은 t번째로 가까운 signer의 RTT_s가 정한다. 정책에 따른 차이는 1.2 ms 안이었다.
 - 꼬리는 여유 signer의 위치가 정한다. 가장 낮은 p99는 "(t + 1)번째로 가까운 signer의 RTT_s"와 "2 × t번째 signer의 RTT_s + 27 ms" 가운데 작은 값에 가까웠다.
 - region 안전성의 비용은 중앙값이다. 가장 가까운 region의 RTT_s(5 ms)에서 두 번째로 가까운 region의 RTT_s(20 ms)로 오른다.
-- 정책을 고르지 않고 fastest만 쓰면 region 안전한 구성의 p99가 85.6 ms다. hedge4는 share를 4배 계산하고 이를 24.7 ms로 줄였다.
+- 정책을 고르지 않고 fastest만 쓰면 region 안전한 구성의 p99가 69~86 ms다(같은 조건을 두 번 잰 값). hedge4는 share를 4배 계산하고 이를 24.7~25.1 ms로 줄였다.
+- 고른 구성을 실제 handshake로 다시 쟀을 때 T_hs는 "D_sign + 21 ms"였다(RTT_c 20 ms). region 안전한 구성의 T_hs는 FROST의 hedge4에서 중앙값 42.2 ms, p99 46.3 ms, threshold RSA의 first + nudge에서 45.2 ms, 48.6 ms였다. fastest의 p99는 90.1 ms와 94.1 ms였다.
 - signer 하나가 응답하지 않으면 fixed와 fastest는 handshake가 모두 실패했다. hedge, 지연 hedge, first는 모두 성공했고 T_hs가 다음으로 가까운 signer의 RTT_s만큼 늘었다. hedge 예산 0.2는 장애 때 성공률을 21%로 떨어뜨렸다.
 
 근거: [results-phase3-optimization.md](results-phase3-optimization.md), [results-phase3-robustness.md](results-phase3-robustness.md) 4절, [results-phase3-hedging.md](results-phase3-hedging.md), [results-phase3-adaptive.md](results-phase3-adaptive.md).
@@ -118,7 +119,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 | signer가 죽으면 TCP에서는 곧바로 실패한다. | 다시 연결하는 시도가 5초를 채운 뒤 실패했다. |
 | hedge는 signer의 RTT_s 변화에 영향받지 않는다. | 세 번째로 가까운 signer가 바뀌어 30 ms 늘었다. |
 | 여유 signer가 멀면 지연 hedge가 가장 낮다. | hedge가 가장 낮았다. 모델이 지연 hedge를 잘못 계산했다. |
-| fastest의 p99는 "2r + 27 ms"다. | p95가 그 값이었고 p99는 더 길었다. |
+| fastest의 p99는 "2r + 27 ms"다. | p95가 그 값이었고 p99는 그보다 길었다. 같은 조건을 두 번 잰 p99가 51 ms까지 달랐다. |
 | 두 번째 client에서 quiche는 RTT_c의 3배쯤만 늦어진다. | 네 서버 모두 handshake의 1~3.5%가 약 1초 늦어졌다. |
 | (예측 없음) | hedge 예산이 signer 장애 때 성공률을 21%로 떨어뜨렸다. |
 | (예측 없음) | threshold ECDSA는 signer 집합이 바뀌면 handshake가 실패했다. |
@@ -129,7 +130,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 
 - 모든 container가 한 host에 있고, host에서 실험과 무관한 process가 CPU를 쓰고 있었다. signer 5개 가운데 둘은 같은 물리 core의 thread를 썼다.
 - 링크는 `tc netem`의 지연과 서로 독립인 loss다. 실제 WAN에서 재지 않았다.
-- p99는 조건마다 표본 1~50개로 정해진다. 같은 조건을 반복해 흔들림을 재지 않았다.
+- p99는 조건마다 표본 1~50개로 정해진다. 같은 조건을 두 번 잰 것은 Phase 3의 12개 조건뿐이다. 그 결과 hedge와 first의 p99는 1.5 ms 안에서 같았고 fastest의 p99는 51 ms까지 달랐다. 다른 문서의 p99 가운데 손실 복구를 기다리는 정책의 값은 크기의 정도로 읽어야 한다.
 - Phase 3의 배치는 signer 5개, region 3개, RTT_s 5·20·80 ms 한 가지 조합이다.
 - threshold ECDSA는 갱신이 멈춘 library의 GG20이다. 더 새로운 protocol은 재지 않았다.
 - key는 dealer가 나누었다. 분산 key 생성, signer와 coordinator의 상호 인증, nonce commitment와 presignature의 장애 뒤 관리는 구현하지 않았다.

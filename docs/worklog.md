@@ -410,6 +410,16 @@ s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 
 - 모델에서 지연 hedge의 넓히는 단계가 구현과 달랐다. 넓힐 때 시작하는 것은 처음의 집합이 아닌 부분집합들이므로 여유 signer의 응답이 반드시 필요하다. `harness/model.py`를 고쳤다. 측정 전에 commit한 예측 file은 그대로 두었고, 고친 모델의 값은 `results/2026-11-18-phase3/policies-model-vs-measured.csv`에 따로 넣었다.
 - 결과 문서의 구성 비교표에 정책별 중앙값 대신 묶음의 최저 중앙값을 적은 곳이 있었다. hedge5는 share를 30개 계산해 중앙값이 1.2 ms 길다. 표를 그 정책의 값으로 고쳤다.
 
+### 검증 측정의 결과
+
+`harness/campaigns/phase3-verify.sh`를 14:07~14:36에 실행했다. 조건은 12개이고 handshake 12,000개가 전부 성공했다. 결과는 [results-phase3-optimization.md](results-phase3-optimization.md) 7절에 적었다.
+
+- 예측 1(T_hs 중앙값이 D_sign 중앙값 + 21.0 ms와 0.5 ms 안에서 같다)은 12개 중 11개에서 맞았다. 하나는 0.58 ms였다.
+- 예측 2(p99의 순서가 같다)는 hedge4와 first가 fastest보다 낮다는 점에서 맞았다. t = 3에서 fastest와 nudge의 순서가 바뀌었다.
+- 예측 3 가운데 hedge와 first의 p99는 0.3~1.2 ms 차이로 맞았다. fastest는 6개 중 2개가 25 ms 밖이었다. FROST t = 2의 fastest는 D_sign p99가 앞선 측정에서 95.2 ms, 이번에 44.2 ms였다.
+- 이 측정으로 같은 조건을 두 번 잰 값이 처음 생겼다. 손실 복구를 기다리는 정책의 p99는 표본 1,000개로는 수십 ms씩 흔들린다. Phase 3의 순위 비교(1순위 일치 11개, regret)는 조건마다 한 번 잰 p99로 한 것이므로 fastest와 nudge가 얽힌 부분은 그만큼 불확실하다. 결과 문서의 한계에 적었다.
+- 검증 측정의 첫 두 조건이 도는 동안 같은 host에서 대기열 5번의 집계 script를 실행했다(약 1분). 측정 중인 host에서 다른 일을 하지 않는다는 규칙을 어겼다. 두 조건의 T_hs 중앙값은 예측과 0.2 ms 안에서 같았고 실행 전 1분 load average는 1.6이었다. 다시 측정하지는 않았다.
+
 ### 남은 일
 
 - signer와 coordinator의 상호 인증을 구현하지 않았다. signer 연결의 TLS와 QUIC은 자체 서명 인증서를 쓰고 chain을 검증하지 않는다.
