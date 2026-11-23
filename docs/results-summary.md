@@ -75,18 +75,19 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 | --- | --- | --- | --- |
 | t = 2. region 하나의 침해로 key가 넘어간다. | 5/5/5/20/80, hedge4 | 5.6 ms | 9.5 ms |
 | t = 3. region 하나의 침해로 key가 넘어간다. | 5/5/5/20/80, hedge5 | 6.6 ms | 22.0 ms |
-| t = 3. region 하나가 침해되어도 안전하고, region 하나가 사라져도 서명한다. | 5/5/20/20/80, hedge4 | 20.7 ms | 24.7 ms |
-| 위와 같은 조건, threshold RSA | 5/5/20/20/80, first + nudge | 24.2 ms | 26.4 ms |
+| t = 3. region 하나가 침해되어도 안전하고, region 하나가 사라져도 서명한다. | 5/5/20/20/80, hedge5 | 21.5 ms | 26.5 ± 0.1 ms (5회) |
+| 위와 같은 조건, threshold RSA | 5/5/20/20/80, first + nudge | 24.3 ms | 25.7 ± 1.1 ms (5회) |
 | t = 4. region 하나가 사라지면 서명하지 못한다. | 5/5/5/20/80, fastest + nudge | 20.6 ms | 74.0 ms |
 
 - 중앙값은 t번째로 가까운 signer의 RTT_s가 정한다. 정책에 따른 차이는 1.2 ms 안이었다.
 - 꼬리는 여유 signer의 위치가 정한다. 가장 낮은 p99는 "(t + 1)번째로 가까운 signer의 RTT_s"와 "2 × t번째 signer의 RTT_s + 27 ms" 가운데 작은 값에 가까웠다.
 - region 안전성의 비용은 중앙값이다. 가장 가까운 region의 RTT_s(5 ms)에서 두 번째로 가까운 region의 RTT_s(20 ms)로 오른다.
-- 정책을 고르지 않고 fastest만 쓰면 region 안전한 구성의 p99가 69~86 ms다(같은 조건을 두 번 잰 값). hedge4는 share를 4배 계산하고 이를 24.7~25.1 ms로 줄였다.
-- 고른 구성을 실제 handshake로 다시 쟀을 때 T_hs는 "D_sign + 21 ms"였다(RTT_c 20 ms). region 안전한 구성의 T_hs는 FROST의 hedge4에서 중앙값 42.2 ms, p99 46.3 ms, threshold RSA의 first + nudge에서 45.2 ms, 48.6 ms였다. fastest의 p99는 90.1 ms와 94.1 ms였다.
+- 정책을 고르지 않고 fastest만 쓰면 region 안전한 구성의 p99가 70.7 ± 2.0 ms다(5회 반복). hedge5는 26.5 ± 0.1 ms, hedge4는 28.6 ± 6.9 ms다. hedge4의 p99는 꼬리의 비율이 1% 근처여서 회마다 25.5~38.5 ms로 달랐다. 표의 나머지 행은 한 번 잰 값이다.
+- 고른 구성을 실제 handshake로 5회 쟀을 때 T_hs의 p99는 FROST의 fastest 91.3 ± 1.0 ms, hedge4 55.5 ± 8.5 ms, hedge5 57.1 ± 5.9 ms, threshold RSA의 fastest 95.8 ± 0.2 ms, first + nudge 48.6 ± 0.3 ms였다(RTT_c 20 ms).
+- "여유 signer" 규칙을 쓰지 않았던 배치 두 가지로 검증했을 때 6개 묶음 가운데 4개에서만 성립해, 미리 정한 기준(5개 이상)을 충족하지 못했다. 규칙은 어림값으로만 쓴다.
 - signer 하나가 응답하지 않으면 fixed와 fastest는 handshake가 모두 실패했다. hedge, 지연 hedge, first는 모두 성공했고 T_hs가 다음으로 가까운 signer의 RTT_s만큼 늘었다. hedge 예산 0.2는 장애 때 성공률을 21%로 떨어뜨렸다.
 
-근거: [results-phase3-optimization.md](results-phase3-optimization.md), [results-phase3-robustness.md](results-phase3-robustness.md) 4절, [results-phase3-hedging.md](results-phase3-hedging.md), [results-phase3-adaptive.md](results-phase3-adaptive.md).
+근거: [results-phase3-optimization.md](results-phase3-optimization.md), [results-phase3-repeat.md](results-phase3-repeat.md), [results-phase3-robustness.md](results-phase3-robustness.md) 4절, [results-phase3-hedging.md](results-phase3-hedging.md), [results-phase3-adaptive.md](results-phase3-adaptive.md).
 
 ## 3. 가설의 판정
 
@@ -95,7 +96,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 | H1. 실행 단위를 공유하는 동기형 hook 구현체에서는 동시 handshake 수에 비례해 T_hs가 늘고, 비동기형에서는 유지된다. | 맞음. 동기형이어도 실행 단위를 공유하지 않는 quic-go는 유지됐다. | 지연 50 ms에서 동시 1·10·100개의 중앙값이 aioquic 71.6·277.2·3,228.4 ms, quiche 71.2·71.6·72.7 ms, s2n-quic 72.0·72.1·72.3 ms |
 | H2. RTT_s가 수십 ms 이상이면 D_sign은 왕복 횟수에 좌우된다. precomputation을 켠 FROST의 증가량은 켜지 않은 것의 절반이다. | 맞음. "RTT_s가 1 ms 미만이면 계산 시간에 좌우된다"는 scheme에 따라 달랐다. | RTT_s 0 → 50 ms에서 증가량이 FROST 100.1 ms, precomputation FROST 50.0 ms, threshold RSA 50.9 ms |
 | H3. D_sign이 client의 PTO보다 짧으면 T_hs는 D_sign만큼 늘고, 길면 증가량이 D_sign과 달라진다. | 앞부분 맞음, 뒷부분 기각. PTO보다 길어도 증가량은 D_sign과 1 ms 안에서 같았다. | 지연 0~1,200 ms, RTT_c 1·20·100 ms, 서버 4개, client 2개 |
-| H4. p99를 최소화하는 구성은 signer 배치와 선택 정책으로 결정되고, order statistic 모델이 실측 순위를 재현한다. | 앞부분 맞음, 뒷부분 일부만 맞음. 미리 정한 판정 기준은 충족했으나 기준이 너무 넓었다. | 모델의 1순위가 실측 최저 정책과 일치한 묶음이 24개 중 11개. 중앙값의 오차는 2.6 ms 이내, loss가 있을 때의 p99는 132개 조건 중 52개에서 10 ms 넘게 낮게 잡음 |
+| H4. p99를 최소화하는 구성은 signer 배치와 선택 정책으로 결정되고, order statistic 모델이 실측 순위를 재현한다. | 앞부분 맞음, 뒷부분 일부만 맞음. 첫 판정 기준은 너무 넓었고, 기준을 좁힌 두 번째 검증에서 모델은 가장 좋은 정책을 골랐다. | 첫 측정: 모델의 1순위가 실측 최저 정책과 일치한 묶음이 24개 중 11개. 새 배치: 모델의 1순위 안에 실측 최저 정책이 6개 묶음 모두에서 들었고, 그중 2개는 1순위가 정책의 절반을 넘는다. 중앙값의 오차는 2.6 ms 이내, loss가 있을 때의 p99는 132개 조건 중 52개에서 10 ms 넘게 낮게 잡음 |
 
 ## 4. 권고 구성
 
@@ -104,7 +105,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 1. 서버 구현체는 서명을 기다리는 동안 다른 연결을 처리할 수 있어야 한다. quic-go, quiche, s2n-quic이 해당한다. loss가 있는 client link에서는 quiche의 꼬리가 가장 짧았다.
 2. coordinator와 signer 사이는 signer당 QUIC 연결 4개를 유지한다.
 3. scheme은 PKI에 따라 고른다. 사설 PKI이면 precomputation을 쓰는 FROST가 가장 빠르다. 공개 WebPKI이면 threshold RSA를 쓰고, signer의 CPU 하나당 초당 약 200개인 서명 rate를 handshake rate의 상한으로 잡는다. 측정한 threshold ECDSA(GG20)는 서명 rate와 집합 전환 비용 때문에 권하지 않는다.
-4. signer 5개를 세 region에 둔다면 t = 3, region별 signer 수 2, 2, 1로 두고 가까운 두 region에 2개씩 둔다. 정책은 FROST에서 가까운 4개의 hedge, threshold RSA에서 first다.
+4. signer 5개를 세 region에 둔다면 t = 3, region별 signer 수 2, 2, 1로 두고 가까운 두 region에 2개씩 둔다. 정책은 FROST에서 hedge, threshold RSA에서 nudge를 더한 first다. hedge의 폭은 4개이면 share 12개, 5개이면 30개를 계산하며, 5개일 때 p99가 더 일정했다.
 5. fixed와 fastest를 그대로 쓰지 않는다. signer 하나의 장애로 모든 handshake가 실패한다. hedge 예산은 장애가 의심될 때 풀어야 한다.
 
 ## 5. 예측과 달랐던 것
@@ -130,8 +131,8 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 
 - 모든 container가 한 host에 있고, host에서 실험과 무관한 process가 CPU를 쓰고 있었다. signer 5개 가운데 둘은 같은 물리 core의 thread를 썼다.
 - 링크는 `tc netem`의 지연과 서로 독립인 loss다. 실제 WAN에서 재지 않았다.
-- p99는 조건마다 표본 1~50개로 정해진다. 같은 조건을 두 번 잰 것은 Phase 3의 12개 조건뿐이다. 그 결과 hedge와 first의 p99는 1.5 ms 안에서 같았고 fastest의 p99는 51 ms까지 달랐다. 다른 문서의 p99 가운데 손실 복구를 기다리는 정책의 값은 크기의 정도로 읽어야 한다.
-- Phase 3의 배치는 signer 5개, region 3개, RTT_s 5·20·80 ms 한 가지 조합이다.
+- p99는 조건마다 표본 1~50개로 정해진다. 5회 반복한 것은 region 안전 구성의 정책 18개와 handshake 5개 조건뿐이다([results-phase3-repeat.md](results-phase3-repeat.md)). 반복했을 때 fastest의 p99는 앞서 한 번 잰 값보다 11~31 ms 낮았고, hedge4와 first의 p99는 회마다 13~17 ms 달랐다. 다른 문서의 한 번 잰 p99는 크기의 정도로 읽어야 한다.
+- Phase 3의 배치는 signer 5개, region 3개이고 RTT_s는 5·20·80 ms와 10·40·120 ms 두 조합이다.
 - threshold ECDSA는 갱신이 멈춘 library의 GG20이다. 더 새로운 protocol은 재지 않았다.
 - key는 dealer가 나누었다. 분산 key 생성, signer와 coordinator의 상호 인증, nonce commitment와 presignature의 장애 뒤 관리는 구현하지 않았다.
 - hedge가 FROST의 동시 세션 안전성에 기대는 부분은 검토받지 않았다.
@@ -141,7 +142,7 @@ signer 5개를 RTT_s가 5, 20, 80 ms인 세 region에 두고 정책을 전수 �
 ## 7. 남은 일
 
 - 응답 없는 signer의 감지와 복귀, 장애 때 hedge 예산을 푸는 규칙을 구현하고 측정한다.
-- 모델에 QUIC의 긴 손실 복구와 TCP의 연쇄 지연을 넣고, 다른 배치로 "여유 signer" 규칙을 검증한다.
+- 모델에 QUIC의 긴 손실 복구와 TCP의 연쇄 지연을 넣는다. 꼬리의 비율이 1%를 넘는 구성에서 "여유 signer" 규칙이 틀리는 조건을 정리한다.
 - threshold ECDSA를 CGGMP21이나 DKLs23 구현으로 다시 잰다.
 - s2n-quic 서버가 손실된 ServerHello를 늦게 다시 보내는 원인과, 두 번째 client에서 handshake가 겹칠 때 1초가 걸리는 원인을 packet 단위로 확인한다.
 - 대표 구성 하나를 실제 WAN에서 잰다.

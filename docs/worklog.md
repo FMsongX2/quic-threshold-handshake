@@ -467,6 +467,16 @@ newplace는 "가장 낮은 p99는 여유 signer의 위치로 정해진다"는 �
 
 hedge5를 실제 handshake로 재지 않았으므로 handshake 묶음에 hedge5를 더해 5회 측정한다. 예측은 다음과 같다. T_hs 중앙값은 43.5~45.0 ms, p99의 5회 평균은 47~52 ms이고 5회의 차이는 5 ms 이하다.
 
+hedge5의 handshake 측정은 24일 02:06~02:18에 했고 5회 모두 정상 종료했다. 예측은 틀렸다. T_hs 중앙값은 43.5 ms로 범위 안이었으나 p99의 5회 평균이 57.1 ms(51.0~61.6 ms)였고 5회의 차이가 10.6 ms였다. 이 측정 중에 host에 다른 사용자의 부하가 있었다(측정 전 1분 load average 1.3, 1.3, 8.2, 5.0, 6.1). hedge4(55.5 ms, 앞서 부하가 적을 때 측정)와 조건이 달라 두 정책의 차이를 handshake에서는 가리지 못했다. 논문에는 두 값을 모두 적고 측정 시점과 부하를 밝혔다.
+
+### 논문 초안
+
+- 원고는 `paper/paper.md`, 그림은 `paper/figures.py`가 만든다. `paper/build.sh`가 읽기용 PDF를 만든다. 양식은 정보과학회논문지의 관례(국·영 캡션, 인용 표기)를 따랐고 투고처는 정하지 않았다.
+- 선행 연구를 다시 찾았다. Kolegov 등(arXiv:2101.00084)이 TCP 위의 TLS에서 threshold ECDSA의 응답 시간을 측정했으므로 "TLS handshake에서 threshold signing을 처음 측정했다"고 쓸 수 없다. Mücke 등(IMC 2024)은 서버가 인증서를 기다리는 지연을 client 8종으로 측정했다. 두 문헌의 해당 부분을 원문에서 확인했다. 이 연구의 위치는 "서버 구현체 비교, 실제 threshold signer, 배치·정책·장애"로 잡았다. QUIC handshake 안에서 threshold signing의 지연을 구현체별로 측정한 연구는 찾지 못했다.
+- 참고문헌 16편의 서지를 DOI와 제목으로 확인했다. LURK-T와 Kempf 등의 내용은 초록으로 확인했다.
+- 논문의 꼬리 지연 수치는 반복 측정의 값으로 바꾸었다. region 안전 구성의 hedge는 앞선 문서의 hedge4 24.7 ms 대신 hedge5 26.5 ± 0.1 ms와 hedge4 28.6 ± 6.9 ms를 쓴다. `docs/results-*.md`의 한 번 잰 p99는 그대로 두었다.
+- 저자와 소속, 사사, 생성형 AI 사용 공개 문구는 원고에 넣지 않았다. 투고처가 정해지면 넣는다.
+
 ### 남은 일
 
 - signer와 coordinator의 상호 인증을 구현하지 않았다. signer 연결의 TLS와 QUIC은 자체 서명 인증서를 쓰고 chain을 검증하지 않는다.

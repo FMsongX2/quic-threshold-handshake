@@ -40,6 +40,8 @@ QUIC handshake에서 서버는 TLS 1.3 CertificateVerify 메시지에 인증서 
 | [docs/results-phase3-signer-transport.md](docs/results-phase3-signer-transport.md) | signer 연결에 TLS와 QUIC을 쓸 때의 손실 뒤 지연, 연결 수의 효과, 요청마다 연결을 맺는 비용 |
 | [docs/results-phase3-robustness.md](docs/results-phase3-robustness.md) | QUIC 연결 수의 범위, signer 하나가 응답하지 않거나 느려질 때의 정책별 동작, RTT_s의 jitter |
 | [docs/results-phase3-optimization.md](docs/results-phase3-optimization.md) | 지연 모델과 실측의 비교, 가설 H4의 판정, 보안 조건별 구성 비교 |
+| [docs/results-phase3-repeat.md](docs/results-phase3-repeat.md) | 꼬리 지연의 5회 반복 측정, 쓰지 않았던 배치에서 규칙과 모델을 검증한 결과, client link loss의 2,000회 측정 |
+| [paper/paper.md](paper/paper.md) | 논문 초안(국문). 그림은 `paper/figures.py`가 그리고 `paper/build.sh`가 읽기용 PDF를 만든다. |
 | [docs/worklog.md](docs/worklog.md) | 날짜별 작업, 결정과 그 이유 |
 
 ## 실행
@@ -81,9 +83,11 @@ python3 harness/model.py predict --placement 5/5/20/20/80 --t 3 --loss 2
 | `harness/analyze_timeline.py` | signer event 전후로 handshake의 성공 수와 T_hs를 시간 구간별로 집계 |
 | `harness/analyze_signer_qlog.py` | coordinator가 signer와 맺은 QUIC 연결의 qlog에서 요청의 전송 대기와 congestion window를 집계 |
 | `harness/model.py`, `harness/analyze_phase3.py` | 서명 지연 모델과, 모델의 예측을 Phase 3 측정과 비교하는 집계 |
-| `harness/campaigns/` | 2026-11-18 측정 묶음의 실행 script |
+| `harness/analyze_repeat.py` | 반복 측정의 회별 p99 평균과 신뢰구간, 새 배치의 판정, 늦어진 handshake의 비율 집계 |
+| `harness/campaigns/` | 2026-11-18과 2026-11-23 측정 묶음의 실행 script |
+| `paper/` | 논문 초안, 그림을 그리는 script, PDF build script |
 | `results/` | 측정 결과. 조건별 요약은 `summary.csv`, 서명·handshake별 기록은 gzip으로 압축한 `*.jsonl.gz`다. 집계 스크립트는 압축한 파일과 압축하지 않은 파일을 모두 읽는다. qlog 원본은 용량 때문에 저장소에 넣지 않는다. |
 
 ## 진행 상태
 
-Phase 0~3의 측정을 마쳤다. 서버 구현체 4개(quic-go, aioquic, quiche, s2n-quic)와 client 구현체 2개(quic-go, s2n-quic), signature scheme 3개(FROST, threshold RSA, threshold ECDSA)를 측정했고, signer 5개를 세 region에 두는 배치에서 지연 모델을 실측과 비교했다. 결론은 [docs/results-summary.md](docs/results-summary.md)에 있다. 구현하지 않은 것은 signer와 coordinator의 상호 인증, 응답 없는 signer를 선택에서 빼는 기능, 분산 key 생성이다. 날짜별 진행은 [docs/worklog.md](docs/worklog.md)에, 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 있다.
+Phase 0~3의 측정을 마쳤다. 서버 구현체 4개(quic-go, aioquic, quiche, s2n-quic)와 client 구현체 2개(quic-go, s2n-quic), signature scheme 3개(FROST, threshold RSA, threshold ECDSA)를 측정했고, signer 5개를 세 region에 두는 배치에서 지연 모델을 실측과 비교했다. 꼬리 지연에 관한 주요 결과는 5회 반복 측정으로 다시 확인했다. 결론은 [docs/results-summary.md](docs/results-summary.md)에, 논문 초안은 [paper/paper.md](paper/paper.md)에 있다. 구현하지 않은 것은 signer와 coordinator의 상호 인증, 응답 없는 signer를 선택에서 빼는 기능, 분산 key 생성이다. 날짜별 진행은 [docs/worklog.md](docs/worklog.md)에, 팀이 결정해야 할 항목은 [docs/problem-definition.md](docs/problem-definition.md)의 "미결정 사항"에 있다.

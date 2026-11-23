@@ -1,5 +1,6 @@
 scheme,t,policy,runs,handshakes,ok,t_hs_p50_mean,t_hs_p95_mean,t_hs_p99_mean,t_hs_p99_min,t_hs_p99_max,t_hs_p99_ci95_half,d_sign_p50_mean,d_sign_p99_mean
 frost,3,fastest,5,5000,5000,43.0,60.9,91.3,90.9,92.8,1.0,21.2,69.5
 frost,3,hedge4,5,5000,5000,43.5,44.1,55.5,47.7,60.8,8.5,21.6,33.7
+frost,3,hedge5,5,5000,5000,43.5,47.7,57.1,51.0,61.6,5.9,21.9,30.6
 rsa,3,fastest,5,5000,5000,47.6,67.1,95.8,95.6,96.1,0.2,25.8,74.0
 rsa,3,firstn1.5,5,5000,5000,47.5,48.1,48.6,48.4,49.0,0.3,25.8,26.4

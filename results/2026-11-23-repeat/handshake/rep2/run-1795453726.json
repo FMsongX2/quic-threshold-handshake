@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "handshake",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-23-repeat/handshake/rep2",
+    "--configs",
+    "frost:3:5:pre",
+    "--policies",
+    "fastest,hedge4,hedge5",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "5/5/20/20/80",
+    "--losses",
+    "2",
+    "--n",
+    "1000"
+  ],
+  "images": {
+    "qth-go": "sha256:5637184660b5547797d2bcab884ccd68b61a422dc4bd3fb981b886a98ed639e6"
+  }
+}
