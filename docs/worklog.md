@@ -420,6 +420,32 @@ s2n-quic 서버의 지연 주입 측정과 두 번째 client(대기열 5번)의 
 - 이 측정으로 같은 조건을 두 번 잰 값이 처음 생겼다. 손실 복구를 기다리는 정책의 p99는 표본 1,000개로는 수십 ms씩 흔들린다. Phase 3의 순위 비교(1순위 일치 11개, regret)는 조건마다 한 번 잰 p99로 한 것이므로 fastest와 nudge가 얽힌 부분은 그만큼 불확실하다. 결과 문서의 한계에 적었다.
 - 검증 측정의 첫 두 조건이 도는 동안 같은 host에서 대기열 5번의 집계 script를 실행했다(약 1분). 측정 중인 host에서 다른 일을 하지 않는다는 규칙을 어겼다. 두 조건의 T_hs 중앙값은 예측과 0.2 ms 안에서 같았고 실행 전 1분 load average는 1.6이었다. 다시 측정하지는 않았다.
 
+## 2026-11-23
+
+### 논문화를 위한 반복 측정의 계획과 예측
+
+결과를 논문으로 쓰기로 했다. 지금까지의 측정은 조건마다 한 번씩이어서 p99가 표본 10개 안팎으로 정해졌고, 같은 조건을 두 번 잰 12개에서 fastest의 p99가 51 ms까지 달랐다. 꼬리에 관한 주장에는 반복 측정이 필요하다. `harness/campaigns/repeat.sh`로 네 묶음을 측정한다. 결과는 `results/2026-11-23-repeat`에 둔다.
+
+| 묶음 | 내용 | 반복 |
+| --- | --- | --- |
+| policies | 배치 5/5/20/20/80, signer link의 loss 2%에서 정책별 D_sign. FROST t = 2, 3, 4와 threshold RSA t = 3 | 서명 1,000개씩 5회 |
+| newplace | RTT_s가 10, 40, 120 ms인 배치 10/10/40/40/120과 10/40/40/120/120에서 FROST의 정책 전부 | 서명 1,000개씩 2회 |
+| handshake | 배치 5/5/20/20/80, t = 3의 fastest와 hedge4(FROST), fastest와 first + nudge(threshold RSA)를 실제 handshake로 | handshake 1,000개씩 5회 |
+| clientloss | client link의 loss 2%, RTT_c 20 ms, 주입한 지연 0, 20, 100 ms, 서버 4개 | handshake 2,000개씩 1회 |
+
+host는 11월 20일에 다시 시작됐고, CPU 9를 쓰던 process가 없다. 측정 전 1분 load average는 0.0이다. signer의 CPU 배정은 앞선 측정과 같게 둔다.
+
+newplace는 "가장 낮은 p99는 여유 signer의 위치로 정해진다"는 규칙을 찾는 데 쓰지 않은 배치다. 이 규칙은 앞선 측정을 본 뒤에 찾았으므로 새 배치로 검증한다. 모델(지연 hedge를 고친 것)의 예측은 측정 전에 `results/2026-11-23-repeat/predictions-newplace.csv`에 적었다. 판정에 쓰는 p99는 두 회를 합친 서명 2,000개의 p99다.
+
+측정 전의 예측과 판정 기준이다.
+
+1. 규칙의 검증. 묶음(배치와 t) 6개에서 정책 가운데 가장 낮은 p99는 "min((t + 1)번째로 가까운 signer의 RTT_s, 2 × t번째 signer의 RTT_s + 27 ms)"보다 0~10 ms 길다. 규칙의 값은 배치 10/10/40/40/120의 t = 2, 3, 4에서 40, 40, 107 ms, 배치 10/40/40/120/120에서 40, 107, 120 ms다. 6개 가운데 5개 이상이 범위에 들면 규칙이 유지된다고 본다. 범위를 벗어날 수 있는 경우가 6개다.
+2. 모델의 검증. 묶음마다 모델이 p99로 1순위에 둔 정책들(0.5 ms 안의 동률 포함) 가운데 실측 p99가 가장 낮은 것과 그 묶음의 실측 최저 p99의 차이가 5 ms 이하다. 6개 가운데 5개 이상이면 "모델이 최저 정책을 고른다"고 본다. 앞선 측정에서 쓴 "상위 3개 순위" 기준은 쓰지 않는다.
+3. 모델은 t번째 signer의 RTT_s가 40 ms일 때 nudge(계수 1.5)가 fastest보다 나쁘다고 예측한다(p99 142 ms 대 107 ms). ping을 보내는 시점(62 ms)이 QUIC의 손실 복구(67 ms)보다 조금 앞서 timer를 다시 맞추기 때문이다. 해당하는 묶음 4개 가운데 3개 이상에서 nudge의 p99가 fastest보다 15 ms 넘게 길 것으로 예측한다. fastest의 p99가 흔들리므로 이 예측은 틀릴 가능성이 크다고 본다.
+4. policies에서 hedge와 first의 p99는 5회의 최댓값과 최솟값의 차이가 5 ms 이하다. fastest의 p99는 그 차이가 20 ms 이상이다. 5회 평균으로 보면 t = 3에서 hedge4의 p99는 23~27 ms, fastest의 p99는 65~95 ms다.
+5. handshake에서 T_hs p99의 5회 평균은 hedge4 44~48 ms, first + nudge 46~50 ms다. fastest는 FROST와 threshold RSA 모두 80~105 ms이고 5회의 차이가 20 ms 이상이다.
+6. clientloss에서 중앙값보다 150 ms 넘게 늦어진 handshake의 비율은 quic-go 1~3.5%, s2n-quic 2~3.5%, quiche 0.3% 이하다. aioquic은 지연 0과 20 ms에서 0.3% 이하, 100 ms에서 1~3%다. s2n-quic에서 늦어진 handshake의 80% 이상이 900 ms를 넘는다.
+
 ### 남은 일
 
 - signer와 coordinator의 상호 인증을 구현하지 않았다. signer 연결의 TLS와 QUIC은 자체 서명 인증서를 쓰고 chain을 검증하지 않는다.
