@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-23-repeat/clientloss",
+    "--servers",
+    "quic-go,aioquic,quiche,s2n-quic",
+    "--delays",
+    "0,20,100",
+    "--rtts",
+    "20",
+    "--losses",
+    "2",
+    "--n",
+    "2000"
+  ],
+  "images": {
+    "qth-go": "sha256:a72504ea76db8c38fab433717c90eb961024c66fcbc4bb31efb360177c3019f1",
+    "qth-aioquic": "sha256:46fb8be0a33f03541868921772c6c59b4c35e1daeaa0747e1bc0f3551b09a43b",
+    "qth-quiche": "sha256:13843683f4bab965de674ed3f206082592d4bedaba92e3a262fb37b3316dda9c",
+    "qth-s2n": "sha256:c548881a677e4a6c401f0104b524a399210db18ffb4d7b35c6c4699050c78fbd"
+  }
+}

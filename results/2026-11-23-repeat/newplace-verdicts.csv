@@ -1,0 +1,7 @@
+placement,t,rule_ms,measured_best,best_p99,best_minus_rule,rule_holds,model_first,regret_of_model_first,model_holds,rtt_of_tth,nudge_minus_fastest_p99
+10/10/40/40/120,2,40,fastestn1.5,38.1,-1.9,False,fastestn1.5,0.0,True,10,-27.3
+10/10/40/40/120,3,40,hedge4,46.4,+6.4,True,hedge4 hedge5,0.0,True,40,+24.8
+10/10/40/40/120,4,107,hedge5,122.2,+15.2,False,fastest hedge5 hedge5d1.5,0.0,True,40,+1.1
+10/40/40/120/120,2,40,hedge4,45.7,+5.7,True,hedge3 hedge4 hedge5,0.0,True,40,+35.3
+10/40/40/120/120,3,107,hedge5,110.8,+3.8,True,fastest hedge4 hedge4d1.5 hedge5 hedge5d1.5,0.0,True,40,+20.9
+10/40/40/120/120,4,120,hedge5,126.4,+6.4,True,hedge5,0.0,True,120,-4.8

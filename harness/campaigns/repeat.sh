@@ -54,7 +54,7 @@ for stage in $STAGES; do
   handshake)
     # The region-safe configuration as real handshakes, five runs each.
     for rep in $REPS; do
-      sign handshake --out "$D/handshake/rep$rep" --configs frost:3:5:pre --policies fastest,hedge4 \
+      sign handshake --out "$D/handshake/rep$rep" --configs frost:3:5:pre --policies fastest,hedge4,hedge5 \
         --transports quic4 --rtts 5/5/20/20/80 --losses 2 --n 1000
       sign handshake --out "$D/handshake/rep$rep" --configs rsa:3:5 --policies fastest,firstn1.5 \
         --transports quic4 --rtts 5/5/20/20/80 --losses 2 --n 1000

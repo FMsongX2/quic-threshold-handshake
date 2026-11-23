@@ -1,0 +1,25 @@
+{
+  "server": "aioquic",
+  "client": "quic-go",
+  "rtt_ms": 20.0,
+  "loss_pct": 2.0,
+  "sign_delay_ms": 20,
+  "concurrency": 1,
+  "rate": 0.0,
+  "n": 2000,
+  "client_exit_code": 0,
+  "started_unix": 1795450436.1360757,
+  "duration_s": 293.35540771484375,
+  "loadavg_before": [
+    1.9345703125,
+    1.74072265625,
+    1.06396484375
+  ],
+  "loadavg_after": [
+    1.12841796875,
+    1.62548828125,
+    1.2333984375
+  ],
+  "server_cpus": "4,5",
+  "client_cpus": "6,7"
+}

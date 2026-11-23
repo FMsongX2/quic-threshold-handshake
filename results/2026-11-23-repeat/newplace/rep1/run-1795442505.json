@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "bench",
+    "--out",
+    "/home/songsong97/quic-threshold-handshake/results/2026-11-23-repeat/newplace/rep1",
+    "--configs",
+    "frost:2:5:pre",
+    "--policies",
+    "fastest,fastestn1.5,hedge3,hedge4,hedge5,hedge3d1.5,hedge4d1.5,hedge5d1.5",
+    "--transports",
+    "quic4",
+    "--rtts",
+    "10/40/40/120/120",
+    "--losses",
+    "2",
+    "--n",
+    "1000"
+  ],
+  "images": {
+    "qth-go": "sha256:60ed42bd91cfaefdbd3e31570f3279b417c973d83b16aea09098efc34c52f328"
+  }
+}
