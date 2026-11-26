@@ -42,6 +42,7 @@ QUIC handshake에서 서버는 TLS 1.3 CertificateVerify 메시지에 인증서 
 | [docs/results-phase3-optimization.md](docs/results-phase3-optimization.md) | 지연 모델과 실측의 비교, 가설 H4의 판정, 보안 조건별 구성 비교 |
 | [docs/results-phase3-repeat.md](docs/results-phase3-repeat.md) | 꼬리 지연의 5회 반복 측정, 쓰지 않았던 배치에서 규칙과 모델을 검증한 결과, client link loss의 2,000회 측정 |
 | [paper/paper.md](paper/paper.md) | 논문 초안(국문). 그림은 `paper/figures.py`가 그리고 `paper/build.sh`가 읽기용 PDF를 만든다. |
+| [docs/presentation-script.md](docs/presentation-script.md) | 10분 발표의 대본. 절마다 슬라이드에 넣을 내용, 말할 문장, 수치의 측정 조건 |
 | [docs/worklog.md](docs/worklog.md) | 날짜별 작업, 결정과 그 이유 |
 
 ## 실행
