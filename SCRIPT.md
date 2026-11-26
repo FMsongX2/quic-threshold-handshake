@@ -1,6 +1,6 @@
 # 발표 대본
 
-빅데이터처리 term project 발표에 쓰는 대본이다. 발표 시간 10분에 맞추었고, 절마다 슬라이드에 넣을 내용과 말할 문장을 함께 적었다. 수치의 근거는 [results-summary.md](results-summary.md)와 [논문 초안](../paper/paper.md)에 있다.
+빅데이터처리 term project 발표에 쓰는 대본이다. 발표 시간 10분에 맞추었고, 절마다 슬라이드에 넣을 내용과 말할 문장을 함께 적었다. 수치의 근거는 [docs/results-summary.md](docs/results-summary.md)와 [논문 초안](paper/paper.md)에 있다.
 
 ## 읽는 법
 
